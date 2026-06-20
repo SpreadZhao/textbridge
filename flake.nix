@@ -259,8 +259,8 @@
         let
           pkgs = pkgsFor system;
           androidComposition = pkgs.androidenv.composeAndroidPackages {
-            platformVersions = [ "35" ];
-            buildToolsVersions = [ "35.0.0" "34.0.0" ];
+            platformVersions = [ "37" ];
+            buildToolsVersions = [ "37.0.0" ];
             includeEmulator = false;
             includeSystemImages = false;
           };
@@ -290,7 +290,7 @@
               pkgs.ninja
               pkgs.pkg-config
               pkgs.fcitx5
-              pkgs.gradle
+              pkgs.gradle_9
               pkgs.jdk17
               pkgs.android-tools
               androidSdk
@@ -301,7 +301,7 @@
             JAVA_HOME = pkgs.jdk17.home;
 
             shellHook = ''
-              export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/35.0.0:$PATH"
+              export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/37.0.0:$PATH"
               echo "TextBridge dev shell"
               echo "  Android:  cd textbridge/android && gradle assembleDebug"
               echo "  Server:   python3 textbridge/desktop/server/textbridge_server.py --init-config"

@@ -9,5 +9,6 @@
     <string name="access_token">访问令牌</string>
     <string name="text_to_send">要发送的文本</string>
     <string name="send">发送</string>
+    <string name="send_progress">发送中...</string>
     <string name="status_idle">状态：待发送</string>
 </resources>
