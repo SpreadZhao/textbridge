@@ -17,19 +17,25 @@ import secrets
 import socket
 import sys
 import tempfile
+import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 
+TEXTBRIDGE_VERSION = "0.1.0"
 DEFAULT_PORT = 17321
+DEFAULT_DISCOVERY_PORT = 17322
 DEFAULT_MAX_TEXT_BYTES = 16 * 1024
 DEFAULT_TIMEOUT_MS = 2000
 MAX_JSON_OVERHEAD_BYTES = 4096
+MAX_DISCOVERY_DATAGRAM_BYTES = 2048
+DISCOVERY_REQUEST_TYPE = "textbridge.discover"
+DISCOVERY_OFFER_TYPE = "textbridge.offer"
 
 STATUS_TO_HTTP = {
     "ok": HTTPStatus.OK,
@@ -53,6 +59,9 @@ class ServerConfig:
     request_timeout_ms: int
     runtime_dir: Path
     fcitx_socket: Path
+    discovery_enabled: bool = True
+    discovery_port: int = DEFAULT_DISCOVERY_PORT
+    device_name: str = field(default_factory=socket.gethostname)
 
 
 def validate_addon_response(response: dict[str, Any], request_id: str) -> dict[str, Any]:
@@ -106,6 +115,9 @@ def load_config(path: Path) -> ServerConfig:
         request_timeout_ms=int(raw.get("request_timeout_ms", DEFAULT_TIMEOUT_MS)),
         runtime_dir=runtime_dir,
         fcitx_socket=fcitx_socket,
+        discovery_enabled=bool(raw.get("discovery_enabled", True)),
+        discovery_port=int(raw.get("discovery_port", DEFAULT_DISCOVERY_PORT)),
+        device_name=str(raw.get("device_name") or socket.gethostname()),
     )
 
 
@@ -120,6 +132,9 @@ def init_config(path: Path, listen_host: str, listen_port: int) -> None:
         "token": secrets.token_urlsafe(32),
         "max_text_bytes": DEFAULT_MAX_TEXT_BYTES,
         "request_timeout_ms": DEFAULT_TIMEOUT_MS,
+        "discovery_enabled": True,
+        "discovery_port": DEFAULT_DISCOVERY_PORT,
+        "device_name": socket.gethostname(),
     }
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     path.chmod(0o600)
@@ -279,16 +294,133 @@ def forward_to_fcitx(config: ServerConfig, payload: dict[str, Any]) -> dict[str,
             pass
 
 
+def decode_discovery_request(data: bytes) -> str | None:
+    if len(data) > MAX_DISCOVERY_DATAGRAM_BYTES:
+        return None
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("v") != 1 or payload.get("type") != DISCOVERY_REQUEST_TYPE:
+        return None
+    request_id = payload.get("id")
+    if not isinstance(request_id, str) or request_id == "":
+        return None
+    return request_id
+
+
+def is_unspecified_host(host: str) -> bool:
+    return host in {"", "*", "0.0.0.0", "::"}
+
+
+def advertised_host(listen_host: str, requester_address: tuple[str, int]) -> str:
+    if not is_unspecified_host(listen_host):
+        return listen_host
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(requester_address)
+        host = probe.getsockname()[0]
+        if host and not is_unspecified_host(host):
+            return host
+    except OSError:
+        pass
+    finally:
+        probe.close()
+    return listen_host
+
+
+def make_discovery_offer(config: ServerConfig, request_id: str, requester_address: tuple[str, int]) -> dict[str, Any]:
+    return {
+        "v": 1,
+        "type": DISCOVERY_OFFER_TYPE,
+        "id": request_id,
+        "name": config.device_name,
+        "host": advertised_host(config.listen_host, requester_address),
+        "port": config.listen_port,
+        "version": TEXTBRIDGE_VERSION,
+        "auth": "bearer",
+    }
+
+
+class DiscoveryListener:
+    def __init__(self, config: ServerConfig) -> None:
+        self.config = config
+        self._stopped = threading.Event()
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("", config.discovery_port))
+        self._sock.settimeout(0.2)
+        self._thread = threading.Thread(target=self._serve, name="textbridge-discovery", daemon=True)
+
+    @property
+    def port(self) -> int:
+        return int(self._sock.getsockname()[1])
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._stopped.set()
+        self._sock.close()
+        self._thread.join(timeout=2)
+
+    def _serve(self) -> None:
+        while not self._stopped.is_set():
+            try:
+                data, address = self._sock.recvfrom(MAX_DISCOVERY_DATAGRAM_BYTES + 1)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+            request_id = decode_discovery_request(data)
+            if request_id is None:
+                logging.debug("discovery_request remote=%s result=ignored", address[0])
+                continue
+
+            offer = make_discovery_offer(self.config, request_id, address)
+            response = json.dumps(offer, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            try:
+                self._sock.sendto(response, address)
+                logging.info("discovery_request remote=%s result=responded", address[0])
+            except OSError as exc:
+                logging.info("discovery_request remote=%s result=failed error=%s", address[0], exc.__class__.__name__)
+
+
+def start_discovery_listener(config: ServerConfig) -> DiscoveryListener | None:
+    if not config.discovery_enabled:
+        logging.info("discovery disabled")
+        return None
+    try:
+        listener = DiscoveryListener(config)
+    except OSError as exc:
+        logging.warning(
+            "discovery listen failed host=0.0.0.0 port=%s error=%s",
+            config.discovery_port,
+            exc.__class__.__name__,
+        )
+        return None
+    listener.start()
+    logging.info("discovery listening host=0.0.0.0 port=%s", listener.port)
+    return listener
+
+
 def run(config: ServerConfig) -> None:
     config.runtime_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(config.runtime_dir, 0o700)
 
     handler = make_handler(config)
     server = ThreadingHTTPServer((config.listen_host, config.listen_port), handler)
+    discovery_listener = start_discovery_listener(config)
     logging.info("listening host=%s port=%s", config.listen_host, config.listen_port)
     try:
         server.serve_forever()
     finally:
+        if discovery_listener is not None:
+            discovery_listener.close()
         server.server_close()
 
 

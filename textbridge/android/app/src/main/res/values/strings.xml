@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">TextBridge</string>
     <string name="computer_address">电脑地址</string>
+    <string name="scan_computer">扫描电脑</string>
+    <string name="scan_computer_progress">扫描中...</string>
+    <string name="select_computer">选择电脑</string>
     <string name="access_token">访问令牌</string>
     <string name="text_to_send">要发送的文本</string>
     <string name="send">发送</string>

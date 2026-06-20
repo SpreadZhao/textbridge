@@ -1,7 +1,9 @@
 package io.github.textbridge.android
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -10,7 +12,11 @@ import android.widget.TextView
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -21,6 +27,7 @@ class MainActivity : Activity() {
     private lateinit var addressEdit: EditText
     private lateinit var tokenEdit: EditText
     private lateinit var bodyEdit: EditText
+    private lateinit var scanButton: Button
     private lateinit var sendButton: Button
     private lateinit var statusView: TextView
 
@@ -33,6 +40,7 @@ class MainActivity : Activity() {
         addressEdit = findViewById(R.id.addressEdit)
         tokenEdit = findViewById(R.id.tokenEdit)
         bodyEdit = findViewById(R.id.bodyEdit)
+        scanButton = findViewById(R.id.scanButton)
         sendButton = findViewById(R.id.sendButton)
         statusView = findViewById(R.id.statusView)
 
@@ -42,12 +50,150 @@ class MainActivity : Activity() {
         addressEdit.setText(prefs.getString(KEY_ADDRESS, ""))
         tokenEdit.setText(prefs.getString(KEY_TOKEN, ""))
 
+        scanButton.setOnClickListener { scanForComputers() }
         sendButton.setOnClickListener { sendCurrentText() }
     }
 
     override fun onDestroy() {
         executor.shutdown()
         super.onDestroy()
+    }
+
+    private fun scanForComputers() {
+        setScanning(true)
+        statusView.text = "状态：正在扫描..."
+        val startedAt = SystemClock.elapsedRealtime()
+
+        executor.execute {
+            val offers = discoverComputers()
+            val remainingMs = DISCOVERY_TIMEOUT_MS - (SystemClock.elapsedRealtime() - startedAt)
+            if (remainingMs > 0) {
+                try {
+                    Thread.sleep(remainingMs)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+            }
+
+            runOnUiThread {
+                setScanning(false)
+                when {
+                    offers.isEmpty() -> {
+                        statusView.text = "状态：未发现电脑"
+                    }
+                    offers.size == 1 -> {
+                        applyDiscoveryOffer(offers.first())
+                    }
+                    else -> {
+                        statusView.text = "状态：发现 ${offers.size} 台电脑"
+                        showDiscoveryChooser(offers)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setScanning(scanning: Boolean) {
+        scanButton.isEnabled = !scanning
+        scanButton.text = if (scanning) getString(R.string.scan_computer_progress) else getString(R.string.scan_computer)
+    }
+
+    private fun discoverComputers(): List<DiscoveryOffer> {
+        val requestId = UUID.randomUUID().toString()
+        val requestBytes = JSONObject()
+            .put("v", 1)
+            .put("type", "textbridge.discover")
+            .put("id", requestId)
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+        val offers = LinkedHashMap<String, DiscoveryOffer>()
+        val deadline = SystemClock.elapsedRealtime() + DISCOVERY_TIMEOUT_MS
+
+        try {
+            DatagramSocket().use { socket ->
+                socket.broadcast = true
+                socket.send(
+                    DatagramPacket(
+                        requestBytes,
+                        requestBytes.size,
+                        InetAddress.getByName(DISCOVERY_BROADCAST_ADDRESS),
+                        DISCOVERY_PORT,
+                    ),
+                )
+
+                while (true) {
+                    val remainingMs = deadline - SystemClock.elapsedRealtime()
+                    if (remainingMs <= 0) {
+                        break
+                    }
+
+                    socket.soTimeout = remainingMs.coerceAtMost(250L).toInt()
+                    val response = DatagramPacket(ByteArray(MAX_DISCOVERY_DATAGRAM_BYTES), MAX_DISCOVERY_DATAGRAM_BYTES)
+                    try {
+                        socket.receive(response)
+                    } catch (e: SocketTimeoutException) {
+                        continue
+                    }
+
+                    val offer = parseDiscoveryOffer(response, requestId) ?: continue
+                    offers.putIfAbsent("${offer.host}:${offer.port}", offer)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Discovery failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        return offers.values.toList()
+    }
+
+    private fun parseDiscoveryOffer(packet: DatagramPacket, requestId: String): DiscoveryOffer? {
+        return try {
+            val payload = String(packet.data, packet.offset, packet.length, StandardCharsets.UTF_8)
+            val json = JSONObject(payload)
+            if (json.optInt("v") != 1 || json.optString("type") != "textbridge.offer") {
+                return null
+            }
+            if (json.optString("id") != requestId) {
+                return null
+            }
+
+            val host = json.optString("host").trim()
+            val port = json.optInt("port", -1)
+            if (host.isBlank() || port !in 1..65535) {
+                return null
+            }
+
+            val name = json.optString("name").trim()
+            DiscoveryOffer(
+                name = if (name.isBlank()) host else name,
+                host = host,
+                port = port,
+                version = json.optString("version"),
+                auth = json.optString("auth"),
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun showDiscoveryChooser(offers: List<DiscoveryOffer>) {
+        val labels = offers.map { it.label }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.select_computer)
+            .setItems(labels) { _, which ->
+                applyDiscoveryOffer(offers[which])
+            }
+            .show()
+    }
+
+    private fun applyDiscoveryOffer(offer: DiscoveryOffer) {
+        val address = "${offer.host}:${offer.port}"
+        addressEdit.setText(address)
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ADDRESS, address)
+            .apply()
+        statusView.text = "状态：已选择 ${offer.label}"
     }
 
     private fun sendCurrentText() {
@@ -175,10 +321,25 @@ class MainActivity : Activity() {
         val message: String,
     )
 
+    private data class DiscoveryOffer(
+        val name: String,
+        val host: String,
+        val port: Int,
+        val version: String,
+        val auth: String,
+    ) {
+        val label: String
+            get() = "$name $host:$port"
+    }
+
     companion object {
         private const val PREFS_NAME = "textbridge"
         private const val KEY_ADDRESS = "address"
         private const val KEY_TOKEN = "token"
         private const val TAG = "TextBridge"
+        private const val DISCOVERY_BROADCAST_ADDRESS = "255.255.255.255"
+        private const val DISCOVERY_PORT = 17322
+        private const val DISCOVERY_TIMEOUT_MS = 2000L
+        private const val MAX_DISCOVERY_DATAGRAM_BYTES = 2048
     }
 }

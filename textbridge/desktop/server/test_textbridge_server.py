@@ -202,5 +202,103 @@ class ServerProtocolTest(unittest.TestCase):
         self.assertEqual(body["status"], "invalid_request")
 
 
+class DiscoveryProtocolTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        runtime = Path(self.tmp.name) / "runtime"
+        self.config = textbridge_server.ServerConfig(
+            listen_host="0.0.0.0",
+            listen_port=17321,
+            token="secret-token",
+            max_text_bytes=64,
+            request_timeout_ms=200,
+            runtime_dir=runtime,
+            fcitx_socket=runtime / "fcitx.sock",
+            discovery_port=0,
+            device_name="test-host",
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_discovery_valid_request_returns_offer(self) -> None:
+        listener = textbridge_server.start_discovery_listener(self.config)
+        self.assertIsNotNone(listener)
+        assert listener is not None
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+                client.settimeout(2)
+                request_id = str(uuid.uuid4())
+                request = {
+                    "v": 1,
+                    "type": "textbridge.discover",
+                    "id": request_id,
+                }
+                client.sendto(json.dumps(request).encode("utf-8"), ("127.0.0.1", listener.port))
+                data, _ = client.recvfrom(4096)
+        finally:
+            listener.close()
+
+        offer = json.loads(data.decode("utf-8"))
+        self.assertEqual(offer["v"], 1)
+        self.assertEqual(offer["type"], "textbridge.offer")
+        self.assertEqual(offer["id"], request_id)
+        self.assertEqual(offer["name"], "test-host")
+        self.assertEqual(offer["host"], "127.0.0.1")
+        self.assertEqual(offer["port"], 17321)
+        self.assertEqual(offer["version"], "0.1.0")
+        self.assertEqual(offer["auth"], "bearer")
+
+    def test_discovery_echoes_configured_listen_host(self) -> None:
+        request_id = str(uuid.uuid4())
+        config = textbridge_server.ServerConfig(
+            listen_host="192.168.1.10",
+            listen_port=17321,
+            token="secret-token",
+            max_text_bytes=64,
+            request_timeout_ms=200,
+            runtime_dir=Path(self.tmp.name) / "runtime",
+            fcitx_socket=Path(self.tmp.name) / "runtime" / "fcitx.sock",
+            device_name="test-host",
+        )
+        offer = textbridge_server.make_discovery_offer(config, request_id, ("127.0.0.1", 12345))
+        self.assertEqual(offer["host"], "192.168.1.10")
+        self.assertEqual(offer["id"], request_id)
+
+    def test_discovery_invalid_requests_are_ignored(self) -> None:
+        self.assertIsNone(textbridge_server.decode_discovery_request(b"not json"))
+        self.assertIsNone(textbridge_server.decode_discovery_request(b"[]"))
+        self.assertIsNone(
+            textbridge_server.decode_discovery_request(
+                json.dumps({"v": 2, "type": "textbridge.discover", "id": str(uuid.uuid4())}).encode("utf-8")
+            )
+        )
+        self.assertIsNone(
+            textbridge_server.decode_discovery_request(
+                json.dumps({"v": 1, "type": "wrong.type", "id": str(uuid.uuid4())}).encode("utf-8")
+            )
+        )
+        self.assertIsNone(
+            textbridge_server.decode_discovery_request(
+                json.dumps({"v": 1, "type": "textbridge.discover", "id": ""}).encode("utf-8")
+            )
+        )
+        self.assertIsNone(textbridge_server.decode_discovery_request(b"{" + (b"x" * 3000) + b"}"))
+
+    def test_discovery_disabled_does_not_listen(self) -> None:
+        config = textbridge_server.ServerConfig(
+            listen_host="0.0.0.0",
+            listen_port=17321,
+            token="secret-token",
+            max_text_bytes=64,
+            request_timeout_ms=200,
+            runtime_dir=Path(self.tmp.name) / "runtime",
+            fcitx_socket=Path(self.tmp.name) / "runtime" / "fcitx.sock",
+            discovery_enabled=False,
+            discovery_port=0,
+        )
+        self.assertIsNone(textbridge_server.start_discovery_listener(config))
+
+
 if __name__ == "__main__":
     unittest.main()
