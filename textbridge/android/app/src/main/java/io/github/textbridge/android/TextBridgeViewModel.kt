@@ -42,6 +42,7 @@ class TextBridgeViewModel(
                     settingsAdbPort = settings.adbPort.toString(),
                     settingsToken = settings.token,
                     hasUnsavedSettings = false,
+                    sendMode = settings.sendMode,
                     sendHistory = settings.sendHistory,
                 )
             }
@@ -70,6 +71,13 @@ class TextBridgeViewModel(
 
     fun onBodyChange(value: String) {
         _uiState.update { it.copy(body = value) }
+    }
+
+    fun onSendModeChange(value: SendMode) {
+        _uiState.update { it.copy(sendMode = value) }
+        viewModelScope.launch {
+            settingsStore.saveSendMode(value)
+        }
     }
 
     fun toggleKeyModifier(modifier: KeyModifier) {
@@ -193,6 +201,7 @@ class TextBridgeViewModel(
         val endpoint = resolveEndpoint(state) ?: return
         val token = state.token
         val text = state.body
+        val sendMode = state.sendMode
 
         when {
             token.isBlank() -> {
@@ -218,6 +227,19 @@ class TextBridgeViewModel(
             }
 
             if (result.ok) {
+                val enterResult = if (sendMode == SendMode.SEND_THEN_ENTER) {
+                    withContext(ioDispatcher) {
+                        commitClient.postKey(
+                            address = endpoint.address,
+                            token = token,
+                            requestId = UUID.randomUUID().toString(),
+                            key = RemoteKey.RETURN,
+                            modifiers = emptyList(),
+                        )
+                    }
+                } else {
+                    null
+                }
                 val updatedHistory = settingsStore.addSendHistoryItem(
                     SendHistoryItem(
                         id = UUID.randomUUID().toString(),
@@ -230,7 +252,7 @@ class TextBridgeViewModel(
                 _uiState.update {
                     it.copy(
                         body = "",
-                        status = result.message,
+                        status = sendSuccessMessage(result, enterResult),
                         isSending = false,
                         sendHistory = updatedHistory,
                     )
@@ -243,6 +265,14 @@ class TextBridgeViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun sendSuccessMessage(commitResult: SendResult, enterResult: SendResult?): String {
+        return when {
+            enterResult == null -> commitResult.message
+            enterResult.ok -> "已发送并按 Enter"
+            else -> "文字已发送，但 Enter 失败：${enterResult.message}"
         }
     }
 

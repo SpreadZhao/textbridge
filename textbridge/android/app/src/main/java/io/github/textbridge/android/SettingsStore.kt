@@ -35,6 +35,7 @@ interface TextBridgeSettingsRepository {
         token: String,
     )
 
+    suspend fun saveSendMode(sendMode: SendMode)
     suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem>
     suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem>
     suspend fun clearSendHistory()
@@ -58,6 +59,7 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
                 discoveryPort = preferences[Keys.discoveryPort] ?: DEFAULT_DISCOVERY_PORT,
                 adbPort = preferences[Keys.adbPort] ?: DEFAULT_COMMIT_PORT,
                 token = preferences[Keys.token].orEmpty(),
+                sendMode = SendMode.fromStorage(preferences[Keys.sendMode]),
                 sendHistory = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson]),
             )
         }
@@ -75,6 +77,12 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
             preferences[Keys.discoveryPort] = discoveryPort
             preferences[Keys.adbPort] = adbPort
             preferences[Keys.token] = token
+        }
+    }
+
+    override suspend fun saveSendMode(sendMode: SendMode) {
+        appContext.textBridgeDataStore.edit { preferences ->
+            preferences[Keys.sendMode] = sendMode.storageValue
         }
     }
 
@@ -110,6 +118,7 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         val discoveryPort = intPreferencesKey("discovery_port")
         val adbPort = intPreferencesKey("adb_port")
         val token = stringPreferencesKey("token")
+        val sendMode = stringPreferencesKey("send_mode")
         val sendHistoryJson = stringPreferencesKey("send_history_json")
     }
 }

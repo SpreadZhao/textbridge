@@ -17,6 +17,9 @@
     <string name="save_settings">保存配置</string>
     <string name="unsaved_settings">配置未保存</string>
     <string name="text_to_send">要发送的文本</string>
+    <string name="send_mode">发送模式</string>
+    <string name="send_mode_send_only">只发送</string>
+    <string name="send_mode_send_then_enter">发送后按 Enter</string>
     <string name="send">发送</string>
     <string name="send_progress">发送中...</string>
     <string name="key_controls">控制键</string>

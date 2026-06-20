@@ -16,6 +16,17 @@ enum class TransportMode(val storageValue: String) {
     }
 }
 
+enum class SendMode(val storageValue: String) {
+    SEND_ONLY("send_only"),
+    SEND_THEN_ENTER("send_then_enter");
+
+    companion object {
+        fun fromStorage(value: String?): SendMode {
+            return entries.firstOrNull { it.storageValue == value } ?: SEND_ONLY
+        }
+    }
+}
+
 enum class KeyModifier(val wireValue: String, val label: String) {
     CONTROL("Control", "Ctrl"),
     SHIFT("Shift", "Shift"),
@@ -50,6 +61,7 @@ data class TextBridgeSettings(
     val discoveryPort: Int = DEFAULT_DISCOVERY_PORT,
     val adbPort: Int = DEFAULT_COMMIT_PORT,
     val token: String = "",
+    val sendMode: SendMode = SendMode.SEND_ONLY,
     val sendHistory: List<SendHistoryItem> = emptyList(),
 )
 
@@ -65,6 +77,7 @@ data class TextBridgeUiState(
     val settingsAdbPort: String = DEFAULT_COMMIT_PORT.toString(),
     val settingsToken: String = "",
     val hasUnsavedSettings: Boolean = false,
+    val sendMode: SendMode = SendMode.SEND_ONLY,
     val body: String = "",
     val status: String = "待发送",
     val isScanning: Boolean = false,

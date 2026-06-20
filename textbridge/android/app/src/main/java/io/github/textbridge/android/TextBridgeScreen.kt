@@ -22,10 +22,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -43,6 +46,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -86,7 +93,7 @@ fun TextBridgeApp(
     onBodyChange: (String) -> Unit,
     onScan: () -> Unit,
     onSend: () -> Unit,
-    onToggleKeyModifier: (KeyModifier) -> Unit,
+    onSendModeChange: (SendMode) -> Unit,
     onSendKeyAction: (RemoteKey, Set<KeyModifier>) -> Unit,
     onSelectOffer: (DiscoveryOffer) -> Unit,
     onDismissOfferChooser: () -> Unit,
@@ -162,7 +169,7 @@ fun TextBridgeApp(
                             state = state,
                             onBodyChange = onBodyChange,
                             onSend = onSend,
-                            onToggleKeyModifier = onToggleKeyModifier,
+                            onSendModeChange = onSendModeChange,
                             onSendKeyAction = onSendKeyAction,
                         )
                     }
@@ -226,7 +233,7 @@ private fun SendScreen(
     state: TextBridgeUiState,
     onBodyChange: (String) -> Unit,
     onSend: () -> Unit,
-    onToggleKeyModifier: (KeyModifier) -> Unit,
+    onSendModeChange: (SendMode) -> Unit,
     onSendKeyAction: (RemoteKey, Set<KeyModifier>) -> Unit,
 ) {
     Column(
@@ -251,28 +258,17 @@ private fun SendScreen(
             ),
         )
 
-        Button(
-            onClick = onSend,
-            enabled = !state.isSending,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-        ) {
-            Text(
-                if (state.isSending) {
-                    stringResource(R.string.send_progress)
-                } else {
-                    stringResource(R.string.send)
-                },
-            )
-        }
+        SendActionRow(
+            selectedMode = state.sendMode,
+            isSending = state.isSending,
+            onSendModeChange = onSendModeChange,
+            onSend = onSend,
+        )
 
         StatusCard(status = state.status)
 
         KeyControlPanel(
-            selectedModifiers = state.selectedKeyModifiers,
             isSending = state.isSending,
-            onToggleModifier = onToggleKeyModifier,
             onSendKey = onSendKeyAction,
         )
 
@@ -281,10 +277,80 @@ private fun SendScreen(
 }
 
 @Composable
-private fun KeyControlPanel(
-    selectedModifiers: Set<KeyModifier>,
+private fun SendActionRow(
+    selectedMode: SendMode,
     isSending: Boolean,
-    onToggleModifier: (KeyModifier) -> Unit,
+    onSendModeChange: (SendMode) -> Unit,
+    onSend: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val modes = listOf(SendMode.SEND_ONLY, SendMode.SEND_THEN_ENTER)
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.weight(1f)) {
+            FilledTonalButton(
+                onClick = { expanded = true },
+                enabled = !isSending,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(selectedMode.labelRes()),
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                modes.forEach { mode ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(mode.labelRes())) },
+                        onClick = {
+                            expanded = false
+                            onSendModeChange(mode)
+                        },
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = onSend,
+            enabled = !isSending,
+            modifier = Modifier
+                .width(132.dp)
+                .height(52.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+        ) {
+            Text(
+                if (isSending) {
+                    stringResource(R.string.send_progress)
+                } else {
+                    stringResource(R.string.send)
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun KeyControlPanel(
+    isSending: Boolean,
     onSendKey: (RemoteKey, Set<KeyModifier>) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -295,19 +361,7 @@ private fun KeyControlPanel(
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            KeyModifier.entries.forEach { modifier ->
-                ModifierButton(
-                    label = modifier.label,
-                    selected = modifier in selectedModifiers,
-                    enabled = !isSending,
-                    onClick = { onToggleModifier(modifier) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(RemoteKey.ESCAPE, RemoteKey.TAB, RemoteKey.RETURN, RemoteKey.BACKSPACE).forEach { key ->
+            listOf(RemoteKey.RETURN, RemoteKey.BACKSPACE).forEach { key ->
                 KeyButton(
                     label = key.label,
                     enabled = !isSending,
@@ -326,52 +380,6 @@ private fun KeyControlPanel(
                     modifier = Modifier.weight(1f),
                 )
             }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(
-                R.string.shortcut_select_all to RemoteKey.A,
-                R.string.shortcut_copy to RemoteKey.C,
-                R.string.shortcut_paste to RemoteKey.V,
-                R.string.shortcut_cut to RemoteKey.X,
-                R.string.shortcut_undo to RemoteKey.Z,
-            ).forEach { (labelRes, key) ->
-                KeyButton(
-                    label = stringResource(labelRes),
-                    enabled = !isSending,
-                    onClick = { onSendKey(key, setOf(KeyModifier.CONTROL)) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModifierButton(
-    label: String,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (selected) {
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = modifier.height(44.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp),
-        ) {
-            Text(label)
-        }
-    } else {
-        FilledTonalButton(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = modifier.height(44.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp),
-        ) {
-            Text(label)
         }
     }
 }
@@ -717,5 +725,12 @@ private fun TransportMode.labelRes(): Int {
     return when (this) {
         TransportMode.LAN -> R.string.transport_lan
         TransportMode.ADB -> R.string.transport_adb
+    }
+}
+
+private fun SendMode.labelRes(): Int {
+    return when (this) {
+        SendMode.SEND_ONLY -> R.string.send_mode_send_only
+        SendMode.SEND_THEN_ENTER -> R.string.send_mode_send_then_enter
     }
 }
