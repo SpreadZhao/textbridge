@@ -75,9 +75,9 @@ fun TextBridgeScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .navigationBarsPadding()
-                .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .imePadding(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
