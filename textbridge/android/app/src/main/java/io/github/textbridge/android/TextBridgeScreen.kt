@@ -86,6 +86,8 @@ fun TextBridgeApp(
     onBodyChange: (String) -> Unit,
     onScan: () -> Unit,
     onSend: () -> Unit,
+    onToggleKeyModifier: (KeyModifier) -> Unit,
+    onSendKeyAction: (RemoteKey, Set<KeyModifier>) -> Unit,
     onSelectOffer: (DiscoveryOffer) -> Unit,
     onDismissOfferChooser: () -> Unit,
     onUseHistoryItem: (SendHistoryItem) -> Unit,
@@ -160,6 +162,8 @@ fun TextBridgeApp(
                             state = state,
                             onBodyChange = onBodyChange,
                             onSend = onSend,
+                            onToggleKeyModifier = onToggleKeyModifier,
+                            onSendKeyAction = onSendKeyAction,
                         )
                     }
                     entry<HistoryRoute> {
@@ -222,6 +226,8 @@ private fun SendScreen(
     state: TextBridgeUiState,
     onBodyChange: (String) -> Unit,
     onSend: () -> Unit,
+    onToggleKeyModifier: (KeyModifier) -> Unit,
+    onSendKeyAction: (RemoteKey, Set<KeyModifier>) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -236,9 +242,9 @@ private fun SendScreen(
             onValueChange = onBodyChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 300.dp),
+                .heightIn(min = 200.dp),
             label = { Text(stringResource(R.string.text_to_send)) },
-            minLines = 10,
+            minLines = 6,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Text,
                 imeAction = ImeAction.None,
@@ -263,7 +269,131 @@ private fun SendScreen(
 
         StatusCard(status = state.status)
 
+        KeyControlPanel(
+            selectedModifiers = state.selectedKeyModifiers,
+            isSending = state.isSending,
+            onToggleModifier = onToggleKeyModifier,
+            onSendKey = onSendKeyAction,
+        )
+
         Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun KeyControlPanel(
+    selectedModifiers: Set<KeyModifier>,
+    isSending: Boolean,
+    onToggleModifier: (KeyModifier) -> Unit,
+    onSendKey: (RemoteKey, Set<KeyModifier>) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.key_controls),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            KeyModifier.entries.forEach { modifier ->
+                ModifierButton(
+                    label = modifier.label,
+                    selected = modifier in selectedModifiers,
+                    enabled = !isSending,
+                    onClick = { onToggleModifier(modifier) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(RemoteKey.ESCAPE, RemoteKey.TAB, RemoteKey.RETURN, RemoteKey.BACKSPACE).forEach { key ->
+                KeyButton(
+                    label = key.label,
+                    enabled = !isSending,
+                    onClick = { onSendKey(key, emptySet()) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(RemoteKey.LEFT, RemoteKey.UP, RemoteKey.DOWN, RemoteKey.RIGHT).forEach { key ->
+                KeyButton(
+                    label = key.label,
+                    enabled = !isSending,
+                    onClick = { onSendKey(key, emptySet()) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(
+                R.string.shortcut_select_all to RemoteKey.A,
+                R.string.shortcut_copy to RemoteKey.C,
+                R.string.shortcut_paste to RemoteKey.V,
+                R.string.shortcut_cut to RemoteKey.X,
+                R.string.shortcut_undo to RemoteKey.Z,
+            ).forEach { (labelRes, key) ->
+                KeyButton(
+                    label = stringResource(labelRes),
+                    enabled = !isSending,
+                    onClick = { onSendKey(key, setOf(KeyModifier.CONTROL)) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModifierButton(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (selected) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.height(44.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
+        ) {
+            Text(label)
+        }
+    } else {
+        FilledTonalButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.height(44.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
+        ) {
+            Text(label)
+        }
+    }
+}
+
+@Composable
+private fun KeyButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(44.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp),
+    ) {
+        Text(
+            text = label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

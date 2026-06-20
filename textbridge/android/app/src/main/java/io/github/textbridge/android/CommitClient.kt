@@ -1,6 +1,7 @@
 package io.github.textbridge.android
 
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -10,14 +11,44 @@ import java.nio.charset.StandardCharsets
 
 interface TextBridgeCommitClient {
     fun postCommit(address: String, token: String, requestId: String, text: String): SendResult
+    fun postKey(
+        address: String,
+        token: String,
+        requestId: String,
+        key: RemoteKey,
+        modifiers: List<KeyModifier>,
+    ): SendResult
 }
 
 class CommitClient : TextBridgeCommitClient {
     override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
+        return postJson(
+            url = CommitProtocol.normalizeCommitUrl(address),
+            token = token,
+            body = CommitProtocol.requestBody(requestId, text),
+            successMessage = "已发送",
+        )
+    }
+
+    override fun postKey(
+        address: String,
+        token: String,
+        requestId: String,
+        key: RemoteKey,
+        modifiers: List<KeyModifier>,
+    ): SendResult {
+        return postJson(
+            url = CommitProtocol.normalizeKeyUrl(address),
+            token = token,
+            body = CommitProtocol.keyRequestBody(requestId, key, modifiers),
+            successMessage = "按键已发送",
+        )
+    }
+
+    private fun postJson(url: String, token: String, body: ByteArray, successMessage: String): SendResult {
         var connection: HttpURLConnection? = null
         return try {
-            val body = CommitProtocol.requestBody(requestId, text)
-            connection = (URL(CommitProtocol.normalizeCommitUrl(address)).openConnection() as HttpURLConnection).apply {
+            connection = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 3000
                 readTimeout = 5000
@@ -32,6 +63,7 @@ class CommitClient : TextBridgeCommitClient {
             CommitProtocol.parseResult(
                 code = connection.responseCode,
                 responseBody = readResponseBody(connection),
+                successMessage = successMessage,
             )
         } catch (e: Exception) {
             Log.w(TAG, "Commit request failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -59,13 +91,21 @@ class CommitClient : TextBridgeCommitClient {
 }
 
 object CommitProtocol {
-    fun normalizeCommitUrl(address: String): String {
+    private fun normalizeBaseUrl(address: String): String {
         val base = if (address.startsWith("http://") || address.startsWith("https://")) {
             address.trimEnd('/')
         } else {
             "http://${address.trimEnd('/')}"
         }
-        return "$base/v1/commit"
+        return base
+    }
+
+    fun normalizeCommitUrl(address: String): String {
+        return "${normalizeBaseUrl(address)}/v1/commit"
+    }
+
+    fun normalizeKeyUrl(address: String): String {
+        return "${normalizeBaseUrl(address)}/v1/key"
     }
 
     fun requestBody(requestId: String, text: String): ByteArray {
@@ -76,11 +116,20 @@ object CommitProtocol {
             .toByteArray(StandardCharsets.UTF_8)
     }
 
-    fun parseResult(code: Int, responseBody: String): SendResult {
+    fun keyRequestBody(requestId: String, key: RemoteKey, modifiers: List<KeyModifier>): ByteArray {
+        return JSONObject()
+            .put("id", requestId)
+            .put("key", key.wireValue)
+            .put("modifiers", JSONArray(modifiers.map { it.wireValue }))
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+    }
+
+    fun parseResult(code: Int, responseBody: String, successMessage: String = "已发送"): SendResult {
         val json = if (responseBody.isNotBlank()) JSONObject(responseBody) else JSONObject()
         val status = json.optString("status", "")
         return if (code == HttpURLConnection.HTTP_OK && status == "ok") {
-            SendResult(ok = true, message = "已发送")
+            SendResult(ok = true, message = successMessage)
         } else {
             SendResult(ok = false, message = mapFailure(code, status))
         }
@@ -89,6 +138,7 @@ object CommitProtocol {
     fun mapFailure(code: Int, status: String): String {
         return when (status) {
             "invalid_request" -> "请求无效"
+            "invalid_key" -> "按键无效"
             "unauthorized" -> "令牌错误"
             "busy_composing" -> "电脑正在组词"
             "sensitive_field" -> "目标输入框受保护"

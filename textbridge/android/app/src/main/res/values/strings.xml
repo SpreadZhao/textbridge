@@ -19,6 +19,12 @@
     <string name="text_to_send">要发送的文本</string>
     <string name="send">发送</string>
     <string name="send_progress">发送中...</string>
+    <string name="key_controls">控制键</string>
+    <string name="shortcut_select_all">全选</string>
+    <string name="shortcut_copy">复制</string>
+    <string name="shortcut_paste">粘贴</string>
+    <string name="shortcut_cut">剪切</string>
+    <string name="shortcut_undo">撤销</string>
     <string name="status_idle">状态：待发送</string>
     <string name="send_history">历史记录</string>
     <string name="empty_history">暂无历史记录</string>

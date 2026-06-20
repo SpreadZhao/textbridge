@@ -16,6 +16,34 @@ enum class TransportMode(val storageValue: String) {
     }
 }
 
+enum class KeyModifier(val wireValue: String, val label: String) {
+    CONTROL("Control", "Ctrl"),
+    SHIFT("Shift", "Shift"),
+    ALT("Alt", "Alt"),
+}
+
+enum class RemoteKey(val wireValue: String, val label: String) {
+    RETURN("Return", "Enter"),
+    ESCAPE("Escape", "Esc"),
+    TAB("Tab", "Tab"),
+    BACKSPACE("BackSpace", "⌫"),
+    DELETE("Delete", "Del"),
+    LEFT("Left", "←"),
+    RIGHT("Right", "→"),
+    UP("Up", "↑"),
+    DOWN("Down", "↓"),
+    HOME("Home", "Home"),
+    END("End", "End"),
+    PAGE_UP("Page_Up", "PgUp"),
+    PAGE_DOWN("Page_Down", "PgDn"),
+    SPACE("Space", "Space"),
+    A("A", "A"),
+    C("C", "C"),
+    V("V", "V"),
+    X("X", "X"),
+    Z("Z", "Z"),
+}
+
 data class TextBridgeSettings(
     val transportMode: TransportMode = TransportMode.LAN,
     val lanAddress: String = "",
@@ -41,6 +69,7 @@ data class TextBridgeUiState(
     val status: String = "待发送",
     val isScanning: Boolean = false,
     val isSending: Boolean = false,
+    val selectedKeyModifiers: Set<KeyModifier> = emptySet(),
     val discoveryChoices: List<DiscoveryOffer> = emptyList(),
     val sendHistory: List<SendHistoryItem> = emptyList(),
     val showClearHistoryConfirm: Boolean = false,

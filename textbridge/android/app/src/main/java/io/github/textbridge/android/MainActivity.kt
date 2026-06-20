@@ -29,6 +29,8 @@ class MainActivity : ComponentActivity() {
                     onBodyChange = viewModel::onBodyChange,
                     onScan = viewModel::scanForComputers,
                     onSend = viewModel::sendCurrentText,
+                    onToggleKeyModifier = viewModel::toggleKeyModifier,
+                    onSendKeyAction = viewModel::sendKeyAction,
                     onSelectOffer = viewModel::selectDiscoveryOffer,
                     onDismissOfferChooser = viewModel::dismissDiscoveryChooser,
                     onUseHistoryItem = viewModel::useHistoryItem,

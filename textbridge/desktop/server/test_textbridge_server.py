@@ -152,10 +152,20 @@ class ServerProtocolTest(unittest.TestCase):
         textbridge_server.forward_to_fcitx = self.original_forward
         self.tmp.cleanup()
 
-    def request(self, token: str, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
-        return self.raw_request(token, json.dumps(payload).encode("utf-8"))
+    def request(
+        self,
+        token: str,
+        payload: dict[str, object],
+        path: str = "/v1/commit",
+    ) -> tuple[int, dict[str, object]]:
+        return self.raw_request(token, json.dumps(payload).encode("utf-8"), path=path)
 
-    def raw_request(self, token: str, body_bytes: bytes) -> tuple[int, dict[str, object]]:
+    def raw_request(
+        self,
+        token: str,
+        body_bytes: bytes,
+        path: str = "/v1/commit",
+    ) -> tuple[int, dict[str, object]]:
         handler = textbridge_server.make_handler(self.config)
         server = textbridge_server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever)
@@ -164,7 +174,7 @@ class ServerProtocolTest(unittest.TestCase):
             conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
             conn.request(
                 "POST",
-                "/v1/commit",
+                path,
                 body=body_bytes,
                 headers={
                     "Authorization": f"Bearer {token}",
@@ -262,6 +272,93 @@ class ServerProtocolTest(unittest.TestCase):
         status, body = self.raw_request("secret-token", b"[]")
         self.assertEqual(status, 400)
         self.assertEqual(body["status"], "invalid_request")
+
+    def test_key_action_roundtrip(self) -> None:
+        request_id = str(uuid.uuid4())
+
+        with FakeFcitxSocket(self.config.fcitx_socket) as fake_fcitx:
+            status, body = self.request(
+                "secret-token",
+                {
+                    "id": request_id,
+                    "key": "Return",
+                    "modifiers": ["Control"],
+                },
+                path="/v1/key",
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["id"], request_id)
+        self.assertEqual(body["status"], "ok")
+        self.assertIsNotNone(fake_fcitx.received_payload)
+        self.assertEqual(fake_fcitx.received_payload["v"], 1)
+        self.assertEqual(fake_fcitx.received_payload["id"], request_id)
+        self.assertEqual(fake_fcitx.received_payload["action"], "key")
+        self.assertEqual(fake_fcitx.received_payload["key"], "Return")
+        self.assertEqual(fake_fcitx.received_payload["modifiers"], ["Control"])
+
+    def test_key_action_normalizes_modifier_order(self) -> None:
+        request_id = str(uuid.uuid4())
+
+        with FakeFcitxSocket(self.config.fcitx_socket) as fake_fcitx:
+            status, body = self.request(
+                "secret-token",
+                {
+                    "id": request_id,
+                    "key": "V",
+                    "modifiers": ["Alt", "Control", "Control"],
+                },
+                path="/v1/key",
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "ok")
+        self.assertIsNotNone(fake_fcitx.received_payload)
+        self.assertEqual(fake_fcitx.received_payload["modifiers"], ["Control", "Alt"])
+
+    def test_key_action_rejects_invalid_key(self) -> None:
+        status, body = self.request(
+            "secret-token",
+            {
+                "id": str(uuid.uuid4()),
+                "key": "F13",
+                "modifiers": [],
+            },
+            path="/v1/key",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(body["status"], "invalid_key")
+
+    def test_key_action_rejects_invalid_modifier(self) -> None:
+        status, body = self.request(
+            "secret-token",
+            {
+                "id": str(uuid.uuid4()),
+                "key": "Return",
+                "modifiers": ["Super"],
+            },
+            path="/v1/key",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(body["status"], "invalid_key")
+
+    def test_key_action_fcitx_invalid_key_maps_to_bad_request(self) -> None:
+        request_id = str(uuid.uuid4())
+        with FakeFcitxSocket(self.config.fcitx_socket, status="invalid_key"):
+            status, body = self.request(
+                "secret-token",
+                {
+                    "id": request_id,
+                    "key": "Return",
+                    "modifiers": [],
+                },
+                path="/v1/key",
+            )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(body["status"], "invalid_key")
 
 
 class DiscoveryProtocolTest(unittest.TestCase):

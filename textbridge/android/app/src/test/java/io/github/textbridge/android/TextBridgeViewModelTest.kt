@@ -149,6 +149,80 @@ class TextBridgeViewModelTest {
     }
 
     @Test
+    fun sendKeyAdbModeUsesLoopbackAddressAndDoesNotTouchTextHistory() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.ADB,
+                    adbPort = 18000,
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.onBodyChange("keep me")
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        advanceUntilIdle()
+
+        assertEquals(listOf("127.0.0.1:18000"), commitClient.keyAddresses)
+        assertEquals(RemoteKey.RETURN, commitClient.keyActions.first().key)
+        assertTrue(commitClient.keyActions.first().modifiers.isEmpty())
+        assertEquals("keep me", viewModel.uiState.value.body)
+        assertTrue(viewModel.uiState.value.sendHistory.isEmpty())
+        assertEquals("按键已发送", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun sendKeyConsumesOneShotModifier() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.LAN,
+                    lanAddress = "192.168.1.10:17321",
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.toggleKeyModifier(KeyModifier.CONTROL)
+        assertEquals(setOf(KeyModifier.CONTROL), viewModel.uiState.value.selectedKeyModifiers)
+
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        advanceUntilIdle()
+
+        assertEquals(listOf(KeyModifier.CONTROL), commitClient.keyActions.first().modifiers)
+        assertTrue(viewModel.uiState.value.selectedKeyModifiers.isEmpty())
+    }
+
+    @Test
+    fun sendShortcutAddsFixedControlModifier() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.LAN,
+                    lanAddress = "192.168.1.10:17321",
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.sendKeyAction(RemoteKey.V, setOf(KeyModifier.CONTROL))
+        advanceUntilIdle()
+
+        assertEquals(RemoteKey.V, commitClient.keyActions.first().key)
+        assertEquals(listOf(KeyModifier.CONTROL), commitClient.keyActions.first().modifiers)
+    }
+
+    @Test
     fun useHistoryItemFillsSendBody() = runTest {
         val viewModel = newViewModel(FakeSettingsRepository(TextBridgeSettings()))
         advanceUntilIdle()
@@ -240,9 +314,28 @@ private class FakeDiscoveryClient : TextBridgeDiscoveryClient {
 
 private class FakeCommitClient : TextBridgeCommitClient {
     val addresses = mutableListOf<String>()
+    val keyAddresses = mutableListOf<String>()
+    val keyActions = mutableListOf<KeyAction>()
 
     override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
         addresses += address
         return SendResult(ok = true, message = "已发送")
     }
+
+    override fun postKey(
+        address: String,
+        token: String,
+        requestId: String,
+        key: RemoteKey,
+        modifiers: List<KeyModifier>,
+    ): SendResult {
+        keyAddresses += address
+        keyActions += KeyAction(key = key, modifiers = modifiers)
+        return SendResult(ok = true, message = "按键已发送")
+    }
 }
+
+private data class KeyAction(
+    val key: RemoteKey,
+    val modifiers: List<KeyModifier>,
+)

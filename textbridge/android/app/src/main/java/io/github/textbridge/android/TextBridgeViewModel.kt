@@ -72,6 +72,17 @@ class TextBridgeViewModel(
         _uiState.update { it.copy(body = value) }
     }
 
+    fun toggleKeyModifier(modifier: KeyModifier) {
+        _uiState.update { state ->
+            val next = if (modifier in state.selectedKeyModifiers) {
+                state.selectedKeyModifiers - modifier
+            } else {
+                state.selectedKeyModifiers + modifier
+            }
+            state.copy(selectedKeyModifiers = next)
+        }
+    }
+
     fun saveSettings() {
         val state = uiState.value
         val discoveryPort = parsePort(state.settingsDiscoveryPort)
@@ -231,6 +242,46 @@ class TextBridgeViewModel(
                         isSending = false,
                     )
                 }
+            }
+        }
+    }
+
+    fun sendKeyAction(key: RemoteKey, fixedModifiers: Set<KeyModifier> = emptySet()) {
+        val state = uiState.value
+        val endpoint = resolveEndpoint(state) ?: return
+        val token = state.token
+
+        if (token.isBlank()) {
+            _uiState.update { it.copy(status = "请填写访问令牌") }
+            return
+        }
+
+        val modifiers = KeyModifier.entries.filter { it in state.selectedKeyModifiers || it in fixedModifiers }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSending = true,
+                    status = "发送按键中...",
+                    selectedKeyModifiers = emptySet(),
+                )
+            }
+
+            val result = withContext(ioDispatcher) {
+                commitClient.postKey(
+                    address = endpoint.address,
+                    token = token,
+                    requestId = UUID.randomUUID().toString(),
+                    key = key,
+                    modifiers = modifiers,
+                )
+            }
+
+            _uiState.update {
+                it.copy(
+                    status = result.message,
+                    isSending = false,
+                )
             }
         }
     }

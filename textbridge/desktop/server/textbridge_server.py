@@ -40,6 +40,7 @@ DISCOVERY_OFFER_TYPE = "textbridge.offer"
 STATUS_TO_HTTP = {
     "ok": HTTPStatus.OK,
     "invalid_request": HTTPStatus.BAD_REQUEST,
+    "invalid_key": HTTPStatus.BAD_REQUEST,
     "invalid_text": HTTPStatus.BAD_REQUEST,
     "unauthorized": HTTPStatus.UNAUTHORIZED,
     "busy_composing": HTTPStatus.CONFLICT,
@@ -48,6 +49,29 @@ STATUS_TO_HTTP = {
     "no_focused_input": HTTPStatus.SERVICE_UNAVAILABLE,
     "fcitx_unavailable": HTTPStatus.SERVICE_UNAVAILABLE,
 }
+
+ALLOWED_KEY_ACTIONS = {
+    "Return",
+    "Escape",
+    "Tab",
+    "BackSpace",
+    "Delete",
+    "Left",
+    "Right",
+    "Up",
+    "Down",
+    "Home",
+    "End",
+    "Page_Up",
+    "Page_Down",
+    "Space",
+    "A",
+    "C",
+    "V",
+    "X",
+    "Z",
+}
+ALLOWED_KEY_MODIFIERS = ("Control", "Shift", "Alt")
 
 
 @dataclass(frozen=True)
@@ -86,6 +110,24 @@ def validate_addon_response(response: dict[str, Any], request_id: str) -> dict[s
     if isinstance(target_program, str):
         normalized["target_program"] = target_program
     return normalized
+
+
+def normalize_key_action(payload: dict[str, Any]) -> tuple[str, list[str]] | None:
+    key = payload.get("key")
+    if not isinstance(key, str) or key not in ALLOWED_KEY_ACTIONS:
+        return None
+
+    raw_modifiers = payload.get("modifiers", [])
+    if not isinstance(raw_modifiers, list):
+        return None
+
+    seen: set[str] = set()
+    for modifier in raw_modifiers:
+        if not isinstance(modifier, str) or modifier not in ALLOWED_KEY_MODIFIERS:
+            return None
+        seen.add(modifier)
+
+    return key, [modifier for modifier in ALLOWED_KEY_MODIFIERS if modifier in seen]
 
 
 def xdg_runtime_dir() -> Path:
@@ -180,7 +222,7 @@ def make_handler(config: ServerConfig) -> type[BaseHTTPRequestHandler]:
             http_status = HTTPStatus.BAD_REQUEST
 
             try:
-                if self.path != "/v1/commit":
+                if self.path not in {"/v1/commit", "/v1/key"}:
                     status = "not_found"
                     http_status = HTTPStatus.NOT_FOUND
                     self.write_json(http_status, {"status": status})
@@ -216,21 +258,36 @@ def make_handler(config: ServerConfig) -> type[BaseHTTPRequestHandler]:
                 if not isinstance(payload, dict):
                     raise ValueError("payload must be a JSON object")
                 request_id = self.validate_request_id(payload.get("id"))
-                text = payload.get("text")
-                if not isinstance(text, str) or text == "":
-                    self.write_json(HTTPStatus.BAD_REQUEST, {"id": request_id, "status": "invalid_request"})
-                    return
+                if self.path == "/v1/commit":
+                    text = payload.get("text")
+                    if not isinstance(text, str) or text == "":
+                        self.write_json(HTTPStatus.BAD_REQUEST, {"id": request_id, "status": "invalid_request"})
+                        return
 
-                if len(text.encode("utf-8")) > config.max_text_bytes:
-                    status = "text_too_large"
-                    http_status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
-                    self.write_json(http_status, {"id": request_id, "status": status})
-                    return
+                    if len(text.encode("utf-8")) > config.max_text_bytes:
+                        status = "text_too_large"
+                        http_status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+                        self.write_json(http_status, {"id": request_id, "status": status})
+                        return
 
-                addon_response = validate_addon_response(
-                    forward_to_fcitx(config, {"v": 1, "id": request_id, "text": text}),
-                    request_id,
-                )
+                    fcitx_payload = {"v": 1, "id": request_id, "text": text}
+                else:
+                    key_action = normalize_key_action(payload)
+                    if key_action is None:
+                        status = "invalid_key"
+                        http_status = HTTPStatus.BAD_REQUEST
+                        self.write_json(http_status, {"id": request_id, "status": status})
+                        return
+                    key, modifiers = key_action
+                    fcitx_payload = {
+                        "v": 1,
+                        "id": request_id,
+                        "action": "key",
+                        "key": key,
+                        "modifiers": modifiers,
+                    }
+
+                addon_response = validate_addon_response(forward_to_fcitx(config, fcitx_payload), request_id)
                 status = str(addon_response.get("status", "fcitx_unavailable"))
                 http_status = STATUS_TO_HTTP.get(status, HTTPStatus.SERVICE_UNAVAILABLE)
                 response = {
@@ -253,7 +310,8 @@ def make_handler(config: ServerConfig) -> type[BaseHTTPRequestHandler]:
             finally:
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 logging.info(
-                    "commit_request id=%s status=%s http=%s remote=%s elapsed_ms=%s",
+                    "action_request path=%s id=%s status=%s http=%s remote=%s elapsed_ms=%s",
+                    self.path,
                     request_id,
                     status,
                     int(http_status),

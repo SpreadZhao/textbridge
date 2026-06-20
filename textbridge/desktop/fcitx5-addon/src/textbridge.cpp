@@ -23,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -32,7 +33,10 @@ constexpr std::size_t kMaxDatagramBytes = kMaxTextBytes + 4096;
 struct Request {
     int version = 0;
     std::string id;
+    std::string action;
     std::string text;
+    std::string key;
+    std::vector<std::string> modifiers;
 };
 
 struct CommitResult {
@@ -126,12 +130,30 @@ public:
                     return std::nullopt;
                 }
                 request.id = *value;
+            } else if (*key == "action") {
+                auto value = parseString();
+                if (!value) {
+                    return std::nullopt;
+                }
+                request.action = *value;
             } else if (*key == "text") {
                 auto value = parseString();
                 if (!value) {
                     return std::nullopt;
                 }
                 request.text = *value;
+            } else if (*key == "key") {
+                auto value = parseString();
+                if (!value) {
+                    return std::nullopt;
+                }
+                request.key = *value;
+            } else if (*key == "modifiers") {
+                auto values = parseStringArray();
+                if (!values) {
+                    return std::nullopt;
+                }
+                request.modifiers = *values;
             } else if (!skipValue()) {
                 return std::nullopt;
             }
@@ -151,6 +173,12 @@ public:
             return std::nullopt;
         }
         if (request.version != 1 || !isUuidString(request.id)) {
+            return std::nullopt;
+        }
+        if (!request.action.empty() && request.action != "key") {
+            return std::nullopt;
+        }
+        if (request.action == "key" && request.key.empty()) {
             return std::nullopt;
         }
         return request;
@@ -275,6 +303,34 @@ private:
         return std::nullopt;
     }
 
+    std::optional<std::vector<std::string>> parseStringArray() {
+        std::vector<std::string> values;
+        if (!consume('[')) {
+            return std::nullopt;
+        }
+        skipWs();
+        if (consume(']')) {
+            return values;
+        }
+
+        while (true) {
+            auto value = parseString();
+            if (!value) {
+                return std::nullopt;
+            }
+            values.push_back(*value);
+
+            skipWs();
+            if (consume(']')) {
+                return values;
+            }
+            if (!consume(',')) {
+                return std::nullopt;
+            }
+            skipWs();
+        }
+    }
+
     bool skipValue() {
         skipWs();
         if (pos_ >= input_.size()) {
@@ -387,6 +443,69 @@ bool validUtf8(const std::string &input) {
         }
     }
     return true;
+}
+
+std::optional<std::string> keyToFcitxName(const std::string &key) {
+    if (key == "Space") {
+        return "space";
+    }
+    if (key == "A" || key == "C" || key == "V" || key == "X" || key == "Z") {
+        std::string lower;
+        lower.push_back(static_cast<char>(key[0] - 'A' + 'a'));
+        return lower;
+    }
+    if (key == "Return" || key == "Escape" || key == "Tab" || key == "BackSpace" ||
+        key == "Delete" || key == "Left" || key == "Right" || key == "Up" ||
+        key == "Down" || key == "Home" || key == "End" || key == "Page_Up" ||
+        key == "Page_Down") {
+        return key;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> modifierToFcitxName(const std::string &modifier, const std::string &controlName) {
+    if (modifier == "Control") {
+        return controlName;
+    }
+    if (modifier == "Shift" || modifier == "Alt") {
+        return modifier;
+    }
+    return std::nullopt;
+}
+
+std::optional<fcitx::Key> makeForwardKey(const std::string &keyName,
+                                         const std::vector<std::string> &modifiers,
+                                         const std::string &controlName) {
+    auto fcitxKeyName = keyToFcitxName(keyName);
+    if (!fcitxKeyName) {
+        return std::nullopt;
+    }
+
+    std::string spec;
+    for (const auto &modifier : modifiers) {
+        auto fcitxModifier = modifierToFcitxName(modifier, controlName);
+        if (!fcitxModifier) {
+            return std::nullopt;
+        }
+        spec += *fcitxModifier;
+        spec += "+";
+    }
+    spec += *fcitxKeyName;
+
+    fcitx::Key key(spec);
+    if (!key.isValid()) {
+        return std::nullopt;
+    }
+    return key;
+}
+
+std::optional<fcitx::Key> makeForwardKey(const std::string &keyName,
+                                         const std::vector<std::string> &modifiers) {
+    auto key = makeForwardKey(keyName, modifiers, "Control");
+    if (key) {
+        return key;
+    }
+    return makeForwardKey(keyName, modifiers, "Ctrl");
 }
 
 std::string jsonEscape(const std::string &input) {
@@ -561,6 +680,8 @@ private:
                 result = {"unauthorized", ""};
             } else if (!parsed) {
                 result = {"invalid_request", ""};
+            } else if (parsed->action == "key") {
+                result = forwardKey(parsed->key, parsed->modifiers);
             } else {
                 result = commitText(parsed->text);
             }
@@ -590,6 +711,32 @@ private:
         }
 
         ic->commitString(text);
+        return {"ok", program};
+    }
+
+    CommitResult forwardKey(const std::string &keyName, const std::vector<std::string> &modifiers) {
+        auto key = makeForwardKey(keyName, modifiers);
+        if (!key) {
+            return {"invalid_key", ""};
+        }
+
+        auto *ic = instance_->lastFocusedInputContext();
+        if (!ic || !ic->hasFocus()) {
+            return {"no_focused_input", ""};
+        }
+
+        std::string program = ic->program();
+        if (instance_->isComposing(ic)) {
+            return {"busy_composing", program};
+        }
+
+        auto flags = ic->capabilityFlags();
+        if (flags.test(fcitx::CapabilityFlag::PasswordOrSensitive)) {
+            return {"sensitive_field", program};
+        }
+
+        ic->forwardKey(*key, false);
+        ic->forwardKey(*key, true);
         return {"ok", program};
     }
 
