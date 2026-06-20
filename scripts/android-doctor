@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+required_platform="${TEXTBRIDGE_REQUIRED_ANDROID_PLATFORM:-android-37}"
+required_build_tools="${TEXTBRIDGE_REQUIRED_ANDROID_BUILD_TOOLS:-37.0.0}"
+android_home="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${XDG_LIB_HOME:-$HOME/Lib}/Android/Sdk}}"
+adb_bin="$android_home/platform-tools/adb"
+
+echo "ANDROID_HOME=$android_home"
+echo "Required platform=$required_platform"
+echo "Required build-tools=$required_build_tools"
+
+if [[ ! -d "$android_home" ]]; then
+  echo "Android SDK directory is missing." >&2
+  exit 1
+fi
+
+if [[ ! -d "$android_home/platforms/$required_platform" ]]; then
+  echo "Missing Android platform: $android_home/platforms/$required_platform" >&2
+  exit 1
+fi
+
+if [[ ! -d "$android_home/build-tools/$required_build_tools" ]]; then
+  echo "Missing Android build-tools: $android_home/build-tools/$required_build_tools" >&2
+  exit 1
+fi
+
+if [[ ! -x "$adb_bin" ]]; then
+  echo "adb is missing or not executable: $adb_bin" >&2
+  exit 1
+fi
+
+"$adb_bin" version
+"$adb_bin" devices
+android --version
+gradle --version

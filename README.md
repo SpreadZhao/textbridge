@@ -13,6 +13,12 @@ NixOS 开发环境：
 nix develop path:.
 ```
 
+Android 环境基于 spreadconfig 的 Android flake template 做了 TextBridge 定制：shell 会安装项目本地 Android agent skills，并优先使用可满足 API 37/build-tools 37.0.0 的 Android Studio SDK；如果外部 SDK 缺少组件，会回退到 flake 内的 Nix Android SDK。环境异常时运行：
+
+```sh
+scripts/android-doctor
+```
+
 项目级验证：
 
 ```sh

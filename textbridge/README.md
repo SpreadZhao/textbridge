@@ -22,7 +22,13 @@ textbridge/
 nix develop path:.
 ```
 
-该 shell 提供 Python 3、CMake、Ninja、pkg-config、Fcitx5 开发头文件、JDK、Gradle、Android SDK platform/build-tools 和 adb。
+该 shell 基于 spreadconfig 的 Android flake template 做了 TextBridge 定制，提供 Python 3、CMake、Ninja、pkg-config、Fcitx5 开发头文件、JDK、Gradle、Android 工具链、adb、`android-cli` 和项目本地 Android agent skills。
+
+Android SDK 选择规则：
+
+- 如果外部 Android Studio SDK 包含 `platforms/android-37.0` 和 `build-tools/37.0.0`，优先使用外部 SDK；
+- 否则回退到 flake 内的 Nix Android SDK，保证当前项目仍可构建；
+- 环境异常时运行 `scripts/android-doctor` 查看当前 SDK、adb、设备和 Gradle 状态。
 
 也可以按范围进入更轻量的 shell：
 
