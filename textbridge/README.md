@@ -15,7 +15,7 @@ textbridge/
     └── send_test.py         # 直接向插件 Unix socket 发测试文本
 ```
 
-## NixOS 桌面产物开发环境
+## 项目开发环境
 
 在仓库根目录进入开发 shell：
 
@@ -23,15 +23,22 @@ textbridge/
 nix develop path:.
 ```
 
-该 shell 只覆盖 NixOS 部署产物开发，提供 Python 3、CMake、Ninja、pkg-config 和 Fcitx5 开发头文件。TextBridge flake 不再携带 Android SDK、Gradle 或 agent skills，避免下游 NixOS 配置引用 `inputs.textbridge` 时把 Android 开发依赖写进 `flake.lock`。
+默认 shell 覆盖整个项目开发，提供 Python 3、CMake、Ninja、pkg-config、Fcitx5 开发头文件、JDK、Gradle、Android 工具链、adb、`android-cli` 和项目 Android skills。TextBridge 的产物 outputs 仍然只负责 Python server、Fcitx5 插件、ADB helper 和 NixOS module。
 
-Android App 使用 spreadconfig 的 Android flake template 或外部 Android Studio SDK 开发；调试 Android 环境时运行 `scripts/android-doctor` 查看当前 SDK、adb、设备和 Gradle 状态。
+Android skills 通过 devShell 内部的固定源码依赖安装，不作为 flake input 暴露给下游。这样 NixOS 配置引用 `inputs.textbridge` 时不会因为开发工具链把 Android skills 写进自己的 `flake.lock`。
+
+Android SDK 选择规则：
+
+- 如果外部 Android Studio SDK 包含 `platforms/android-37.0` 和 `build-tools/37.0.0`，优先使用外部 SDK；
+- 否则回退到 flake 内的 Nix Android SDK，保证当前项目仍可构建；
+- 调试 Android 环境时运行 `scripts/android-doctor` 查看当前 SDK、adb、设备和 Gradle 状态。
 
 也可以按范围进入更轻量的 shell：
 
 ```sh
 nix develop path:.#server
 nix develop path:.#desktop
+nix develop path:.#android
 ```
 
 项目级验证：
