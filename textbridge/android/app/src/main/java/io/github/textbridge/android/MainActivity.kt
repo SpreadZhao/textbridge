@@ -20,8 +20,10 @@ class MainActivity : ComponentActivity() {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
                 TextBridgeApp(
                     state = uiState.value,
-                    onSettingsAddressChange = viewModel::onSettingsAddressChange,
+                    onSettingsTransportModeChange = viewModel::onSettingsTransportModeChange,
+                    onSettingsLanAddressChange = viewModel::onSettingsLanAddressChange,
                     onSettingsDiscoveryPortChange = viewModel::onSettingsDiscoveryPortChange,
+                    onSettingsAdbPortChange = viewModel::onSettingsAdbPortChange,
                     onSettingsTokenChange = viewModel::onSettingsTokenChange,
                     onSaveSettings = viewModel::saveSettings,
                     onBodyChange = viewModel::onBodyChange,

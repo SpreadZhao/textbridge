@@ -34,6 +34,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -74,8 +77,10 @@ private data class TopLevelDestination(
 @Composable
 fun TextBridgeApp(
     state: TextBridgeUiState,
-    onSettingsAddressChange: (String) -> Unit,
+    onSettingsTransportModeChange: (TransportMode) -> Unit,
+    onSettingsLanAddressChange: (String) -> Unit,
     onSettingsDiscoveryPortChange: (String) -> Unit,
+    onSettingsAdbPortChange: (String) -> Unit,
     onSettingsTokenChange: (String) -> Unit,
     onSaveSettings: () -> Unit,
     onBodyChange: (String) -> Unit,
@@ -171,8 +176,10 @@ fun TextBridgeApp(
                     entry<SettingsRoute> {
                         SettingsScreen(
                             state = state,
-                            onAddressChange = onSettingsAddressChange,
+                            onTransportModeChange = onSettingsTransportModeChange,
+                            onLanAddressChange = onSettingsLanAddressChange,
                             onDiscoveryPortChange = onSettingsDiscoveryPortChange,
+                            onAdbPortChange = onSettingsAdbPortChange,
                             onTokenChange = onSettingsTokenChange,
                             onScan = onScan,
                             onSaveSettings = onSaveSettings,
@@ -263,8 +270,10 @@ private fun SendScreen(
 @Composable
 private fun SettingsScreen(
     state: TextBridgeUiState,
-    onAddressChange: (String) -> Unit,
+    onTransportModeChange: (TransportMode) -> Unit,
+    onLanAddressChange: (String) -> Unit,
     onDiscoveryPortChange: (String) -> Unit,
+    onAdbPortChange: (String) -> Unit,
     onTokenChange: (String) -> Unit,
     onScan: () -> Unit,
     onSaveSettings: () -> Unit,
@@ -277,53 +286,76 @@ private fun SettingsScreen(
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            OutlinedTextField(
-                value = state.settingsAddress,
-                onValueChange = onAddressChange,
-                modifier = Modifier.weight(1f),
-                label = { Text(stringResource(R.string.computer_address)) },
-                placeholder = { Text("192.168.1.20:17321") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Next,
-                ),
-            )
+        TransportModeSelector(
+            selectedMode = state.settingsTransportMode,
+            onTransportModeChange = onTransportModeChange,
+        )
 
-            FilledTonalButton(
-                onClick = onScan,
-                enabled = !state.isScanning,
-                modifier = Modifier
-                    .width(124.dp)
-                    .height(56.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp),
-            ) {
-                Text(
-                    if (state.isScanning) {
-                        stringResource(R.string.scan_computer_progress)
-                    } else {
-                        stringResource(R.string.scan_computer)
-                    },
+        when (state.settingsTransportMode) {
+            TransportMode.LAN -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = state.settingsLanAddress,
+                        onValueChange = onLanAddressChange,
+                        modifier = Modifier.weight(1f),
+                        label = { Text(stringResource(R.string.computer_address)) },
+                        placeholder = { Text("192.168.1.20:17321") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Next,
+                        ),
+                    )
+
+                    FilledTonalButton(
+                        onClick = onScan,
+                        enabled = !state.isScanning,
+                        modifier = Modifier
+                            .width(124.dp)
+                            .height(56.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) {
+                        Text(
+                            if (state.isScanning) {
+                                stringResource(R.string.scan_computer_progress)
+                            } else {
+                                stringResource(R.string.scan_computer)
+                            },
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = state.settingsDiscoveryPort,
+                    onValueChange = onDiscoveryPortChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.discovery_port)) },
+                    placeholder = { Text(DEFAULT_DISCOVERY_PORT.toString()) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next,
+                    ),
+                )
+            }
+            TransportMode.ADB -> {
+                OutlinedTextField(
+                    value = state.settingsAdbPort,
+                    onValueChange = onAdbPortChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.adb_port)) },
+                    placeholder = { Text(DEFAULT_COMMIT_PORT.toString()) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next,
+                    ),
                 )
             }
         }
-
-        OutlinedTextField(
-            value = state.settingsDiscoveryPort,
-            onValueChange = onDiscoveryPortChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.discovery_port)) },
-            placeholder = { Text(DEFAULT_DISCOVERY_PORT.toString()) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Number,
-                imeAction = ImeAction.Next,
-            ),
-        )
 
         OutlinedTextField(
             value = state.settingsToken,
@@ -365,6 +397,33 @@ private fun SettingsScreen(
         StatusCard(status = state.status)
 
         Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun TransportModeSelector(
+    selectedMode: TransportMode,
+    onTransportModeChange: (TransportMode) -> Unit,
+) {
+    val modes = listOf(TransportMode.LAN, TransportMode.ADB)
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.transport_mode),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            modes.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = selectedMode == mode,
+                    onClick = { onTransportModeChange(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                ) {
+                    Text(stringResource(mode.labelRes()))
+                }
+            }
+        }
     }
 }
 
@@ -492,7 +551,7 @@ private fun HistoryItemRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${formatHistoryTime(item.sentAtMillis)}  ${item.address}",
+                    text = "${formatHistoryTime(item.sentAtMillis)}  ${stringResource(item.transportMode.labelRes())}  ${item.address}",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.secondary,
@@ -522,4 +581,11 @@ private fun HistoryItemRow(
 
 private fun formatHistoryTime(sentAtMillis: Long): String {
     return DateFormat.format("MM-dd HH:mm", sentAtMillis).toString()
+}
+
+private fun TransportMode.labelRes(): Int {
+    return when (this) {
+        TransportMode.LAN -> R.string.transport_lan
+        TransportMode.ADB -> R.string.transport_adb
+    }
 }

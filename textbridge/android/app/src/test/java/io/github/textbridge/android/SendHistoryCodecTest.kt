@@ -25,6 +25,32 @@ class SendHistoryCodecTest {
     }
 
     @Test
+    fun decodeOldHistoryDefaultsToLanMode() {
+        val decoded = SendHistoryCodec.decode(
+            """
+            [
+              {"id":"old","text":"ok","sentAtMillis":1710000000000,"address":"192.168.1.10:17321"}
+            ]
+            """.trimIndent(),
+        )
+
+        assertEquals(TransportMode.LAN, decoded.first().transportMode)
+    }
+
+    @Test
+    fun encodeDecodePreservesAdbMode() {
+        val item = SendHistoryItem(
+            id = "adb",
+            text = "hello",
+            sentAtMillis = 1710000000000L,
+            address = "127.0.0.1:18000",
+            transportMode = TransportMode.ADB,
+        )
+
+        assertEquals(listOf(item), SendHistoryCodec.decode(SendHistoryCodec.encode(listOf(item))))
+    }
+
+    @Test
     fun decodeSkipsInvalidItems() {
         val decoded = SendHistoryCodec.decode(
             """

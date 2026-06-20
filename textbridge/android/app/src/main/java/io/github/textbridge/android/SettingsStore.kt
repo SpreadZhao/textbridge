@@ -27,10 +27,14 @@ private val Context.textBridgeDataStore: DataStore<Preferences> by preferencesDa
 interface TextBridgeSettingsRepository {
     val settings: Flow<TextBridgeSettings>
 
-    suspend fun saveAddress(address: String)
-    suspend fun saveDiscoveryPort(port: Int)
-    suspend fun saveConnectionSettings(address: String, discoveryPort: Int, token: String)
-    suspend fun saveAddressAndToken(address: String, token: String)
+    suspend fun saveConnectionSettings(
+        transportMode: TransportMode,
+        lanAddress: String,
+        discoveryPort: Int,
+        adbPort: Int,
+        token: String,
+    )
+
     suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem>
     suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem>
     suspend fun clearSendHistory()
@@ -49,36 +53,27 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         }
         .map { preferences ->
             TextBridgeSettings(
-                address = preferences[Keys.address].orEmpty(),
+                transportMode = TransportMode.fromStorage(preferences[Keys.transportMode]),
+                lanAddress = preferences[Keys.address].orEmpty(),
                 discoveryPort = preferences[Keys.discoveryPort] ?: DEFAULT_DISCOVERY_PORT,
+                adbPort = preferences[Keys.adbPort] ?: DEFAULT_COMMIT_PORT,
                 token = preferences[Keys.token].orEmpty(),
                 sendHistory = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson]),
             )
         }
 
-    override suspend fun saveAddress(address: String) {
+    override suspend fun saveConnectionSettings(
+        transportMode: TransportMode,
+        lanAddress: String,
+        discoveryPort: Int,
+        adbPort: Int,
+        token: String,
+    ) {
         appContext.textBridgeDataStore.edit { preferences ->
-            preferences[Keys.address] = address
-        }
-    }
-
-    override suspend fun saveDiscoveryPort(port: Int) {
-        appContext.textBridgeDataStore.edit { preferences ->
-            preferences[Keys.discoveryPort] = port
-        }
-    }
-
-    override suspend fun saveConnectionSettings(address: String, discoveryPort: Int, token: String) {
-        appContext.textBridgeDataStore.edit { preferences ->
-            preferences[Keys.address] = address
+            preferences[Keys.transportMode] = transportMode.storageValue
+            preferences[Keys.address] = lanAddress
             preferences[Keys.discoveryPort] = discoveryPort
-            preferences[Keys.token] = token
-        }
-    }
-
-    override suspend fun saveAddressAndToken(address: String, token: String) {
-        appContext.textBridgeDataStore.edit { preferences ->
-            preferences[Keys.address] = address
+            preferences[Keys.adbPort] = adbPort
             preferences[Keys.token] = token
         }
     }
@@ -110,8 +105,10 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
     }
 
     private object Keys {
+        val transportMode = stringPreferencesKey("transport_mode")
         val address = stringPreferencesKey("address")
         val discoveryPort = intPreferencesKey("discovery_port")
+        val adbPort = intPreferencesKey("adb_port")
         val token = stringPreferencesKey("token")
         val sendHistoryJson = stringPreferencesKey("send_history_json")
     }

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,7 @@ class TextBridgeViewModel(
     private val settingsStore: TextBridgeSettingsRepository,
     private val discoveryClient: TextBridgeDiscoveryClient = DiscoveryClient(),
     private val commitClient: TextBridgeCommitClient = CommitClient(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TextBridgeUiState())
     val uiState: StateFlow<TextBridgeUiState> = _uiState.asStateFlow()
@@ -29,11 +31,15 @@ class TextBridgeViewModel(
             val settings = settingsStore.settings.first()
             _uiState.update {
                 it.copy(
-                    address = settings.address,
+                    transportMode = settings.transportMode,
+                    lanAddress = settings.lanAddress,
                     discoveryPort = settings.discoveryPort.toString(),
+                    adbPort = settings.adbPort.toString(),
                     token = settings.token,
-                    settingsAddress = settings.address,
+                    settingsTransportMode = settings.transportMode,
+                    settingsLanAddress = settings.lanAddress,
                     settingsDiscoveryPort = settings.discoveryPort.toString(),
+                    settingsAdbPort = settings.adbPort.toString(),
                     settingsToken = settings.token,
                     hasUnsavedSettings = false,
                     sendHistory = settings.sendHistory,
@@ -42,12 +48,20 @@ class TextBridgeViewModel(
         }
     }
 
-    fun onSettingsAddressChange(value: String) {
-        _uiState.update { it.withSettingsDraft(address = value) }
+    fun onSettingsTransportModeChange(value: TransportMode) {
+        _uiState.update { it.withSettingsDraft(transportMode = value) }
+    }
+
+    fun onSettingsLanAddressChange(value: String) {
+        _uiState.update { it.withSettingsDraft(lanAddress = value) }
     }
 
     fun onSettingsDiscoveryPortChange(value: String) {
         _uiState.update { it.withSettingsDraft(discoveryPort = value.filter(Char::isDigit).take(5)) }
+    }
+
+    fun onSettingsAdbPortChange(value: String) {
+        _uiState.update { it.withSettingsDraft(adbPort = value.filter(Char::isDigit).take(5)) }
     }
 
     fun onSettingsTokenChange(value: String) {
@@ -60,24 +74,40 @@ class TextBridgeViewModel(
 
     fun saveSettings() {
         val state = uiState.value
-        val port = parsePort(state.settingsDiscoveryPort)
-        if (port == null) {
+        val discoveryPort = parsePort(state.settingsDiscoveryPort)
+        if (discoveryPort == null) {
             _uiState.update { it.copy(status = "发现端口无效") }
             return
         }
+        val adbPort = parsePort(state.settingsAdbPort)
+        if (adbPort == null) {
+            _uiState.update { it.copy(status = "ADB 端口无效") }
+            return
+        }
 
-        val address = state.settingsAddress.trim()
+        val transportMode = state.settingsTransportMode
+        val lanAddress = state.settingsLanAddress.trim()
         val token = state.settingsToken
 
         viewModelScope.launch {
-            settingsStore.saveConnectionSettings(address, port, token)
+            settingsStore.saveConnectionSettings(
+                transportMode = transportMode,
+                lanAddress = lanAddress,
+                discoveryPort = discoveryPort,
+                adbPort = adbPort,
+                token = token,
+            )
             _uiState.update {
                 it.copy(
-                    address = address,
-                    discoveryPort = port.toString(),
+                    transportMode = transportMode,
+                    lanAddress = lanAddress,
+                    discoveryPort = discoveryPort.toString(),
+                    adbPort = adbPort.toString(),
                     token = token,
-                    settingsAddress = address,
-                    settingsDiscoveryPort = port.toString(),
+                    settingsTransportMode = transportMode,
+                    settingsLanAddress = lanAddress,
+                    settingsDiscoveryPort = discoveryPort.toString(),
+                    settingsAdbPort = adbPort.toString(),
                     settingsToken = token,
                     hasUnsavedSettings = false,
                     status = "配置已保存",
@@ -87,6 +117,11 @@ class TextBridgeViewModel(
     }
 
     fun scanForComputers() {
+        if (uiState.value.settingsTransportMode != TransportMode.LAN) {
+            _uiState.update { it.copy(status = "扫描只适用于局域网方式") }
+            return
+        }
+
         val port = parsePort(uiState.value.settingsDiscoveryPort)
         if (port == null) {
             _uiState.update { it.copy(status = "发现端口无效") }
@@ -103,7 +138,7 @@ class TextBridgeViewModel(
             }
 
             val startedAt = SystemClock.elapsedRealtime()
-            val offers = withContext(Dispatchers.IO) {
+            val offers = withContext(ioDispatcher) {
                 discoveryClient.discover(port)
             }
             val remainingMs = DISCOVERY_TIMEOUT_MS - (SystemClock.elapsedRealtime() - startedAt)
@@ -144,15 +179,11 @@ class TextBridgeViewModel(
 
     fun sendCurrentText() {
         val state = uiState.value
-        val address = state.address.trim()
+        val endpoint = resolveEndpoint(state) ?: return
         val token = state.token
         val text = state.body
 
         when {
-            address.isBlank() -> {
-                _uiState.update { it.copy(status = "请填写电脑地址") }
-                return
-            }
             token.isBlank() -> {
                 _uiState.update { it.copy(status = "请填写访问令牌") }
                 return
@@ -166,9 +197,9 @@ class TextBridgeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isSending = true, status = "发送中...") }
 
-            val result = withContext(Dispatchers.IO) {
+            val result = withContext(ioDispatcher) {
                 commitClient.postCommit(
-                    address = address,
+                    address = endpoint.address,
                     token = token,
                     requestId = UUID.randomUUID().toString(),
                     text = text,
@@ -181,7 +212,8 @@ class TextBridgeViewModel(
                         id = UUID.randomUUID().toString(),
                         text = text,
                         sentAtMillis = System.currentTimeMillis(),
-                        address = address,
+                        address = endpoint.address,
+                        transportMode = endpoint.transportMode,
                     ),
                 )
                 _uiState.update {
@@ -247,7 +279,10 @@ class TextBridgeViewModel(
 
     private fun applyDiscoveryOffer(offer: DiscoveryOffer) {
         _uiState.update {
-            it.withSettingsDraft(address = offer.address).copy(
+            it.withSettingsDraft(
+                transportMode = TransportMode.LAN,
+                lanAddress = offer.address,
+            ).copy(
                 isScanning = false,
                 status = "已填入 ${offer.label}，保存后生效",
                 discoveryChoices = emptyList(),
@@ -260,20 +295,54 @@ class TextBridgeViewModel(
         return port?.takeIf { it in 1..65535 }
     }
 
+    private fun resolveEndpoint(state: TextBridgeUiState): ResolvedEndpoint? {
+        return when (state.transportMode) {
+            TransportMode.LAN -> {
+                val address = state.lanAddress.trim()
+                if (address.isBlank()) {
+                    _uiState.update { it.copy(status = "请填写电脑地址") }
+                    null
+                } else {
+                    ResolvedEndpoint(address, TransportMode.LAN)
+                }
+            }
+            TransportMode.ADB -> {
+                val port = parsePort(state.adbPort)
+                if (port == null) {
+                    _uiState.update { it.copy(status = "ADB 端口无效") }
+                    null
+                } else {
+                    ResolvedEndpoint("127.0.0.1:$port", TransportMode.ADB)
+                }
+            }
+        }
+    }
+
     private fun TextBridgeUiState.withSettingsDraft(
-        address: String = settingsAddress,
+        transportMode: TransportMode = settingsTransportMode,
+        lanAddress: String = settingsLanAddress,
         discoveryPort: String = settingsDiscoveryPort,
+        adbPort: String = settingsAdbPort,
         token: String = settingsToken,
     ): TextBridgeUiState {
         return copy(
-            settingsAddress = address,
+            settingsTransportMode = transportMode,
+            settingsLanAddress = lanAddress,
             settingsDiscoveryPort = discoveryPort,
+            settingsAdbPort = adbPort,
             settingsToken = token,
-            hasUnsavedSettings = address != this.address ||
+            hasUnsavedSettings = transportMode != this.transportMode ||
+                lanAddress != this.lanAddress ||
                 discoveryPort != this.discoveryPort ||
+                adbPort != this.adbPort ||
                 token != this.token,
         )
     }
+
+    private data class ResolvedEndpoint(
+        val address: String,
+        val transportMode: TransportMode,
+    )
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

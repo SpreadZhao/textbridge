@@ -27,6 +27,7 @@ object SendHistoryCodec {
                             text = text,
                             sentAtMillis = sentAtMillis,
                             address = address,
+                            transportMode = TransportMode.fromStorage(item.optString("transportMode")),
                         ),
                     )
                 }
@@ -44,7 +45,8 @@ object SendHistoryCodec {
                     .put("id", item.id)
                     .put("text", item.text)
                     .put("sentAtMillis", item.sentAtMillis)
-                    .put("address", item.address),
+                    .put("address", item.address)
+                    .put("transportMode", item.transportMode.storageValue),
             )
         }
         return array.toString()

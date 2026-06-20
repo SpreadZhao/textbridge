@@ -178,6 +178,7 @@
             doCheck = true;
             nativeBuildInputs = [
               pkgs.python3
+              pkgs.makeWrapper
             ];
 
             checkPhase = ''
@@ -197,10 +198,18 @@
               cp textbridge_server.py $out/lib/textbridge/textbridge_server.py
               cp config.example.json $out/share/doc/textbridge/config.example.json
               cp textbridge-server.service $out/share/systemd/user/textbridge-server.service
+              cp ${./textbridge/tools/textbridge-adb-connect} $out/bin/textbridge-adb-connect
 
               patchShebangs $out/lib/textbridge/textbridge_server.py
+              patchShebangs $out/bin/textbridge-adb-connect
               chmod +x $out/lib/textbridge/textbridge_server.py
+              chmod +x $out/bin/textbridge-adb-connect
               ln -s $out/lib/textbridge/textbridge_server.py $out/bin/textbridge-server
+              wrapProgram $out/bin/textbridge-adb-connect \
+                --prefix PATH : ${pkgs.lib.makeBinPath [
+                  pkgs.android-tools
+                  pkgs.gawk
+                ]}
               substituteInPlace $out/share/systemd/user/textbridge-server.service \
                 --replace-fail "%h/.local/lib/textbridge/textbridge_server.py" \
                 "$out/bin/textbridge-server"
@@ -233,10 +242,29 @@
           install-android-skills = mkInstallAndroidSkills pkgs;
         });
 
-      checks = forAllSystems (system: {
-        textbridge-server = self.packages.${system}.textbridge-server;
-        fcitx5-textbridge = self.packages.${system}.fcitx5-textbridge;
-      });
+      checks = forAllSystems (system:
+        let
+          pkgs = pkgsFor system;
+        in
+        {
+          textbridge-server = self.packages.${system}.textbridge-server;
+          fcitx5-textbridge = self.packages.${system}.fcitx5-textbridge;
+          textbridge-adb-connect = pkgs.runCommand "textbridge-adb-connect-test"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.gawk
+              ];
+            }
+            ''
+              cp ${./textbridge/tools/textbridge-adb-connect} ./textbridge-adb-connect
+              cp ${./textbridge/tools/test_textbridge_adb_connect.py} ./test_textbridge_adb_connect.py
+              chmod +x ./textbridge-adb-connect ./test_textbridge_adb_connect.py
+              patchShebangs ./textbridge-adb-connect ./test_textbridge_adb_connect.py
+              python3 ./test_textbridge_adb_connect.py
+              touch $out
+            '';
+        });
 
       apps = forAllSystems (system: {
         textbridge-server = {
@@ -244,6 +272,13 @@
           program = "${self.packages.${system}.textbridge-server}/bin/textbridge-server";
           meta = {
             description = "Run the TextBridge Wi-Fi HTTP server";
+          };
+        };
+        textbridge-adb-connect = {
+          type = "app";
+          program = "${self.packages.${system}.textbridge-server}/bin/textbridge-adb-connect";
+          meta = {
+            description = "Create an adb reverse tunnel for TextBridge USB/ADB mode";
           };
         };
         install-android-skills = {

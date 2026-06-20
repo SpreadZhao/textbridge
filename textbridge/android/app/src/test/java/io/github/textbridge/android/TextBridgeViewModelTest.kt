@@ -27,16 +27,20 @@ class TextBridgeViewModelTest {
     fun saveSettingsCommitsDraftToActiveSettings() = runTest {
         val settingsStore = FakeSettingsRepository(
             TextBridgeSettings(
-                address = "old:17321",
+                transportMode = TransportMode.LAN,
+                lanAddress = "old:17321",
                 discoveryPort = 17322,
+                adbPort = 17321,
                 token = "old-token",
             ),
         )
         val viewModel = newViewModel(settingsStore)
         advanceUntilIdle()
 
-        viewModel.onSettingsAddressChange("new:17321")
+        viewModel.onSettingsTransportModeChange(TransportMode.ADB)
+        viewModel.onSettingsLanAddressChange("new:17321")
         viewModel.onSettingsDiscoveryPortChange("17323")
+        viewModel.onSettingsAdbPortChange("18000")
         viewModel.onSettingsTokenChange("new-token")
 
         assertTrue(viewModel.uiState.value.hasUnsavedSettings)
@@ -45,11 +49,15 @@ class TextBridgeViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertEquals("new:17321", state.address)
+        assertEquals(TransportMode.ADB, state.transportMode)
+        assertEquals("new:17321", state.lanAddress)
         assertEquals("17323", state.discoveryPort)
+        assertEquals("18000", state.adbPort)
         assertEquals("new-token", state.token)
-        assertEquals("new:17321", state.settingsAddress)
+        assertEquals(TransportMode.ADB, state.settingsTransportMode)
+        assertEquals("new:17321", state.settingsLanAddress)
         assertEquals("17323", state.settingsDiscoveryPort)
+        assertEquals("18000", state.settingsAdbPort)
         assertEquals("new-token", state.settingsToken)
         assertFalse(state.hasUnsavedSettings)
         assertEquals("配置已保存", state.status)
@@ -75,6 +83,72 @@ class TextBridgeViewModelTest {
     }
 
     @Test
+    fun saveSettingsRejectsInvalidAdbPort() = runTest {
+        val settingsStore = FakeSettingsRepository(TextBridgeSettings(adbPort = 17321))
+        val viewModel = newViewModel(settingsStore)
+        advanceUntilIdle()
+
+        viewModel.onSettingsAdbPortChange("70000")
+        viewModel.saveSettings()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("17321", state.adbPort)
+        assertEquals("70000", state.settingsAdbPort)
+        assertTrue(state.hasUnsavedSettings)
+        assertEquals("ADB 端口无效", state.status)
+        assertEquals(0, settingsStore.saveConnectionSettingsCalls)
+    }
+
+    @Test
+    fun sendLanModeUsesSavedLanAddress() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.LAN,
+                    lanAddress = "192.168.1.10:17321",
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertEquals(listOf("192.168.1.10:17321"), commitClient.addresses)
+        assertEquals(TransportMode.LAN, viewModel.uiState.value.sendHistory.first().transportMode)
+    }
+
+    @Test
+    fun sendAdbModeUsesLoopbackAddressAndAdbPort() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.ADB,
+                    adbPort = 18000,
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertEquals(listOf("127.0.0.1:18000"), commitClient.addresses)
+        val historyItem = viewModel.uiState.value.sendHistory.first()
+        assertEquals("127.0.0.1:18000", historyItem.address)
+        assertEquals(TransportMode.ADB, historyItem.transportMode)
+    }
+
+    @Test
     fun useHistoryItemFillsSendBody() = runTest {
         val viewModel = newViewModel(FakeSettingsRepository(TextBridgeSettings()))
         advanceUntilIdle()
@@ -91,18 +165,23 @@ class TextBridgeViewModelTest {
         assertEquals("已从历史填入", viewModel.uiState.value.status)
     }
 
-    private fun newViewModel(settingsRepository: TextBridgeSettingsRepository): TextBridgeViewModel {
+    private fun newViewModel(
+        settingsRepository: TextBridgeSettingsRepository,
+        commitClient: TextBridgeCommitClient = FakeCommitClient(),
+        ioDispatcher: TestDispatcher = mainDispatcherRule.testDispatcher,
+    ): TextBridgeViewModel {
         return TextBridgeViewModel(
             settingsStore = settingsRepository,
             discoveryClient = FakeDiscoveryClient(),
-            commitClient = FakeCommitClient(),
+            commitClient = commitClient,
+            ioDispatcher = ioDispatcher,
         )
     }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainDispatcherRule(
-    private val testDispatcher: TestDispatcher = StandardTestDispatcher(),
+    val testDispatcher: TestDispatcher = StandardTestDispatcher(),
 ) : TestWatcher() {
     override fun starting(description: Description) {
         Dispatchers.setMain(testDispatcher)
@@ -121,25 +200,21 @@ private class FakeSettingsRepository(
     var saveConnectionSettingsCalls = 0
         private set
 
-    override suspend fun saveAddress(address: String) {
-        settingsState.value = settingsState.value.copy(address = address)
-    }
-
-    override suspend fun saveDiscoveryPort(port: Int) {
-        settingsState.value = settingsState.value.copy(discoveryPort = port)
-    }
-
-    override suspend fun saveConnectionSettings(address: String, discoveryPort: Int, token: String) {
+    override suspend fun saveConnectionSettings(
+        transportMode: TransportMode,
+        lanAddress: String,
+        discoveryPort: Int,
+        adbPort: Int,
+        token: String,
+    ) {
         saveConnectionSettingsCalls += 1
         settingsState.value = settingsState.value.copy(
-            address = address,
+            transportMode = transportMode,
+            lanAddress = lanAddress,
             discoveryPort = discoveryPort,
+            adbPort = adbPort,
             token = token,
         )
-    }
-
-    override suspend fun saveAddressAndToken(address: String, token: String) {
-        settingsState.value = settingsState.value.copy(address = address, token = token)
     }
 
     override suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem> {
@@ -164,7 +239,10 @@ private class FakeDiscoveryClient : TextBridgeDiscoveryClient {
 }
 
 private class FakeCommitClient : TextBridgeCommitClient {
+    val addresses = mutableListOf<String>()
+
     override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
+        addresses += address
         return SendResult(ok = true, message = "已发送")
     }
 }
