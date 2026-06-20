@@ -219,7 +219,7 @@
                     Generate a token with:
                       python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
                     Then provide it through sops-nix, for example:
-                      services.textbridge.server.tokenFile = config.sops.secrets.textbridge-token.path;
+                      services.textbridge.server.tokenFile = config.sops.secrets."textbridge-token".path;
                   '';
                 }
                 {
