@@ -1,21 +1,5 @@
 {
   "nodes": {
-    "android-skills": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1781167103,
-        "narHash": "sha256-fMbe2E45VtFvIzh6HYKZ1Mqc/E5yc5Ox5jS3JwnVpuE=",
-        "owner": "android",
-        "repo": "skills",
-        "rev": "fe95b6fdf002ece6c7340013623d41d8deec6f52",
-        "type": "github"
-      },
-      "original": {
-        "owner": "android",
-        "repo": "skills",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1781577229,
@@ -34,7 +18,6 @@
     },
     "root": {
       "inputs": {
-        "android-skills": "android-skills",
         "nixpkgs": "nixpkgs"
       }
     }

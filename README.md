@@ -5,15 +5,15 @@
 - `textbridge/android`：Android Kotlin + Compose 发送端。
 - `textbridge/desktop/server`：Python 标准库 HTTP 到 Unix datagram 转发服务。
 - `textbridge/desktop/fcitx5-addon`：Fcitx5 C++ 插件，负责向当前输入上下文提交文本。
-- `textbridge/tools`：本地 Unix socket 调试工具。
+- `textbridge/tools`：本地 Unix socket 调试工具和 USB/ADB 连接辅助脚本。
 
-NixOS 开发环境：
+桌面产物开发环境：
 
 ```sh
 nix develop path:.
 ```
 
-Android 环境基于 spreadconfig 的 Android flake template 做了 TextBridge 定制：shell 会安装项目本地 Android agent skills，并优先使用可满足 API 37/build-tools 37.0.0 的 Android Studio SDK；如果外部 SDK 缺少组件，会回退到 flake 内的 Nix Android SDK。环境异常时运行：
+这个 flake 面向 NixOS 部署产物：Python server、Fcitx5 插件、ADB helper 和 NixOS module。Android App 是客户端源码，不作为 NixOS 产物输出；Android 开发环境使用 spreadconfig 的 Android flake template 或外部 Android Studio SDK。调试 Android 环境时运行：
 
 ```sh
 scripts/android-doctor

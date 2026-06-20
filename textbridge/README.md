@@ -11,10 +11,11 @@ textbridge/
 │   ├── server/              # Python 标准库 HTTP 服务
 │   └── fcitx5-addon/        # C++ Fcitx5 Module Addon
 └── tools/
+    ├── textbridge-adb-connect # 建立 adb reverse 端口转发
     └── send_test.py         # 直接向插件 Unix socket 发测试文本
 ```
 
-## NixOS 开发环境
+## NixOS 桌面产物开发环境
 
 在仓库根目录进入开发 shell：
 
@@ -22,13 +23,9 @@ textbridge/
 nix develop path:.
 ```
 
-该 shell 基于 spreadconfig 的 Android flake template 做了 TextBridge 定制，提供 Python 3、CMake、Ninja、pkg-config、Fcitx5 开发头文件、JDK、Gradle、Android 工具链、adb、`android-cli` 和项目本地 Android agent skills。
+该 shell 只覆盖 NixOS 部署产物开发，提供 Python 3、CMake、Ninja、pkg-config 和 Fcitx5 开发头文件。TextBridge flake 不再携带 Android SDK、Gradle 或 agent skills，避免下游 NixOS 配置引用 `inputs.textbridge` 时把 Android 开发依赖写进 `flake.lock`。
 
-Android SDK 选择规则：
-
-- 如果外部 Android Studio SDK 包含 `platforms/android-37.0` 和 `build-tools/37.0.0`，优先使用外部 SDK；
-- 否则回退到 flake 内的 Nix Android SDK，保证当前项目仍可构建；
-- 环境异常时运行 `scripts/android-doctor` 查看当前 SDK、adb、设备和 Gradle 状态。
+Android App 使用 spreadconfig 的 Android flake template 或外部 Android Studio SDK 开发；调试 Android 环境时运行 `scripts/android-doctor` 查看当前 SDK、adb、设备和 Gradle 状态。
 
 也可以按范围进入更轻量的 shell：
 
@@ -121,7 +118,7 @@ Nix 打包：
 nix build path:.#textbridge-server
 ```
 
-推荐用 TextBridge 的 NixOS server module 管理 Python server、systemd 用户服务、server 配置和防火墙端口。访问令牌通过 `tokenFile` 在运行时读取，不会写进 Nix store。安装 server 包后也会得到 `textbridge-adb-connect`，用于 USB/ADB 模式建立端口转发：
+推荐用 TextBridge 的 NixOS server module 管理 Python server、systemd 用户服务、server 配置和防火墙端口。访问令牌通过 `tokenFile` 在运行时读取，不会写进 Nix store。module 默认也会安装独立的 `textbridge-adb-connect` 包，用于 USB/ADB 模式建立端口转发：
 
 ```nix
 {
@@ -140,6 +137,7 @@ nix build path:.#textbridge-server
     tokenFile = config.sops.secrets."textbridge-token".path;
     listenHost = "0.0.0.0";
     port = 17321;
+    adbHelper.enable = true;
     discovery.port = 17322;
   };
 }

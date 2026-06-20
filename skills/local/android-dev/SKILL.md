@@ -9,17 +9,15 @@ Use this skill for Android work in the TextBridge repository.
 
 ## Environment
 
-- Enter the repository root environment with `nix develop` or `direnv allow`.
-- This project has no Gradle wrapper; use the shell's `gradle` package.
-- The shell installs `android-cli` as the `android` command.
-- `ANDROID_HOME` and `ANDROID_SDK_ROOT` are selected by the dev shell:
-  - Prefer `${XDG_LIB_HOME:-$HOME/Lib}/Android/Sdk` when it contains `platforms/android-37.0` and `build-tools/37.0.0`.
-  - Fall back to the Nix-provided Android SDK so `textbridge/android` still builds reproducibly.
-- The shell adds `$ANDROID_HOME/platform-tools`, the required build-tools, and `$ANDROID_HOME/cmdline-tools/latest/bin` to `PATH`.
+- The repository root `nix develop` shell is for TextBridge desktop outputs only: Python server, Fcitx5 addon, adb helper packaging, and the NixOS module.
+- The TextBridge production flake intentionally does not provide Android SDK, Gradle, Android skills, or `android-cli`. This avoids leaking Android development-only inputs into downstream NixOS `flake.lock` files that only consume the server/module outputs.
+- For Android app work, enter a development environment created from spreadconfig's Android flake template, or use an external Android Studio SDK environment that provides JDK, Gradle, Android SDK, and platform-tools.
+- This project has no Gradle wrapper; use the `gradle` command supplied by that Android development environment.
+- `ANDROID_HOME` and `ANDROID_SDK_ROOT` must point at an SDK containing the platform/build-tools required by `textbridge/android`.
 
 ## Checks
 
-Run `scripts/android-doctor` when Android tooling behaves unexpectedly. It prints the selected SDK path, verifies required SDK components, checks `adb`, lists devices, checks `android --version`, and checks Gradle.
+Run `scripts/android-doctor` from the Android development environment when Android tooling behaves unexpectedly. It prints the selected SDK path, verifies required SDK components, checks `adb`, lists devices, checks `android --version` when available, and checks Gradle.
 
 Useful commands:
 
@@ -35,14 +33,8 @@ adb install -r textbridge/android/app/build/outputs/apk/debug/app-debug.apk
 
 ## Skills
 
-Entering the dev shell runs `install-android-skills`, which scans the pinned official Android skills input and installs project skill symlinks under `.agents/skills`. Run this manually after flake input updates:
-
-```bash
-nix run .#install-android-skills
-```
-
-Official Android skills are tracked in `.agents/skills/.android-skills-managed`. Do not edit that manifest by hand unless you are repairing stale symlinks.
+Official Android agent skills are development tooling. Keep them in the Android development template/environment, not in the TextBridge production flake.
 
 ## Boundaries
 
-Do not install or update Android SDK packages globally unless the user asks. If the external Android Studio SDK is missing a component, report the exact missing path first; the dev shell can still use the Nix SDK fallback.
+Do not install or update Android SDK packages globally unless the user asks. If the active Android development environment is missing a component, report the exact missing path first.

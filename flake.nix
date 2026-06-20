@@ -1,15 +1,11 @@
 {
-  description = "TextBridge development environment";
+  description = "TextBridge desktop packages and NixOS module";
 
   inputs = {
-    android-skills = {
-      url = "github:android/skills";
-      flake = false;
-    };
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, android-skills, nixpkgs }:
+  outputs = { self, nixpkgs }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -18,149 +14,7 @@
           inherit system;
           config = {
             allowUnfree = true;
-            android_sdk.accept_license = true;
           };
-        };
-      mkInstallAndroidSkills = pkgs:
-        pkgs.writeShellApplication {
-          name = "install-android-skills";
-          runtimeInputs = with pkgs; [
-            coreutils
-            findutils
-            gawk
-          ];
-          text = ''
-            set -euo pipefail
-
-            root="''${1:-$PWD}"
-            skills_root="$root/.agents/skills"
-            android_skills_source="${android-skills}"
-            managed_manifest="$skills_root/.android-skills-managed"
-
-            install_skill() {
-              local target_name="$1"
-              local source="$2"
-              local target="$skills_root/$target_name"
-              local current=""
-
-              if [ ! -d "$source" ]; then
-                echo "Skill source does not exist: $source" >&2
-                return 1
-              fi
-
-              if [ ! -f "$source/SKILL.md" ]; then
-                echo "Skill source is missing SKILL.md: $source" >&2
-                return 1
-              fi
-
-              if [ -e "$target" ] || [ -L "$target" ]; then
-                current="$(readlink "$target" || true)"
-                if [ "$current" = "$source" ]; then
-                  return 0
-                fi
-
-                if [ -L "$target" ] && { [[ "$current" == /nix/store/* ]] || [[ "$current" == "$root"/skills/local/* ]]; }; then
-                  rm -f "$target"
-                else
-                  echo "Skill target already exists and is not managed: $target" >&2
-                  return 1
-                fi
-              fi
-
-              mkdir -p "$(dirname "$target")"
-              ln -s "$source" "$target"
-            }
-
-            is_managed_target() {
-              local target="$1"
-              local current=""
-
-              if [ ! -L "$target" ]; then
-                return 1
-              fi
-
-              current="$(readlink "$target" || true)"
-              [[ "$current" == /nix/store/* ]] || [[ "$current" == "$root"/skills/local/* ]]
-            }
-
-            prune_old_official_skills() {
-              local target_name=""
-              local target=""
-
-              if [ ! -f "$managed_manifest" ]; then
-                return 0
-              fi
-
-              while IFS= read -r target_name; do
-                if [ -z "$target_name" ]; then
-                  continue
-                fi
-
-                case "$target_name" in
-                  .* | */* | *[!A-Za-z0-9._-]*)
-                    echo "Skipping unsafe managed skill name: $target_name" >&2
-                    continue
-                    ;;
-                esac
-
-                target="$skills_root/$target_name"
-                if is_managed_target "$target"; then
-                  rm -f "$target"
-                fi
-              done < "$managed_manifest"
-            }
-
-            read_skill_name() {
-              local skill_file="$1"
-
-              awk '
-                NR == 1 && $0 == "---" {
-                  in_frontmatter = 1
-                  next
-                }
-                in_frontmatter && $0 == "---" {
-                  exit
-                }
-                in_frontmatter && $0 ~ /^name:[[:space:]]*/ {
-                  sub(/^name:[[:space:]]*/, "")
-                  print
-                  exit
-                }
-              ' "$skill_file"
-            }
-
-            install_official_skills() {
-              local next_manifest=""
-              local skill_file=""
-              local skill_dir=""
-              local skill_name=""
-
-              next_manifest="$(mktemp "''${TMPDIR:-/tmp}/android-skills-managed.XXXXXX")"
-              while IFS= read -r skill_file; do
-                skill_dir="$(dirname "$skill_file")"
-                skill_name="$(read_skill_name "$skill_file")"
-
-                case "$skill_name" in
-                  "" | .* | */* | *[!A-Za-z0-9._-]*)
-                    echo "Could not determine safe skill name for $skill_file: $skill_name" >&2
-                    rm -f "$next_manifest"
-                    return 1
-                    ;;
-                esac
-
-                install_skill "$skill_name" "$skill_dir"
-                printf '%s\n' "$skill_name" >> "$next_manifest"
-              done < <(find "$android_skills_source" -type f -name SKILL.md | sort)
-
-              mv "$next_manifest" "$managed_manifest"
-            }
-
-            mkdir -p "$skills_root"
-            prune_old_official_skills
-            install_skill android-dev "$root/skills/local/android-dev"
-            install_official_skills
-            echo "Android skills installed into $skills_root"
-          '';
         };
     in
     {
@@ -178,7 +32,6 @@
             doCheck = true;
             nativeBuildInputs = [
               pkgs.python3
-              pkgs.makeWrapper
             ];
 
             checkPhase = ''
@@ -198,21 +51,51 @@
               cp textbridge_server.py $out/lib/textbridge/textbridge_server.py
               cp config.example.json $out/share/doc/textbridge/config.example.json
               cp textbridge-server.service $out/share/systemd/user/textbridge-server.service
-              cp ${./textbridge/tools/textbridge-adb-connect} $out/bin/textbridge-adb-connect
 
               patchShebangs $out/lib/textbridge/textbridge_server.py
-              patchShebangs $out/bin/textbridge-adb-connect
               chmod +x $out/lib/textbridge/textbridge_server.py
-              chmod +x $out/bin/textbridge-adb-connect
               ln -s $out/lib/textbridge/textbridge_server.py $out/bin/textbridge-server
+              substituteInPlace $out/share/systemd/user/textbridge-server.service \
+                --replace-fail "%h/.local/lib/textbridge/textbridge_server.py" \
+                "$out/bin/textbridge-server"
+
+              runHook postInstall
+            '';
+          };
+
+          textbridge-adb-connect = pkgs.stdenvNoCC.mkDerivation {
+            pname = "textbridge-adb-connect";
+            version = "0.1.0";
+            src = ./textbridge/tools;
+            dontConfigure = true;
+            dontBuild = true;
+            doCheck = true;
+            nativeBuildInputs = [
+              pkgs.gawk
+              pkgs.makeWrapper
+              pkgs.python3
+            ];
+
+            checkPhase = ''
+              runHook preCheck
+              chmod +x textbridge-adb-connect test_textbridge_adb_connect.py
+              patchShebangs textbridge-adb-connect test_textbridge_adb_connect.py
+              python3 test_textbridge_adb_connect.py
+              runHook postCheck
+            '';
+
+            installPhase = ''
+              runHook preInstall
+
+              mkdir -p $out/bin
+              cp textbridge-adb-connect $out/bin/textbridge-adb-connect
+              patchShebangs $out/bin/textbridge-adb-connect
+              chmod +x $out/bin/textbridge-adb-connect
               wrapProgram $out/bin/textbridge-adb-connect \
                 --prefix PATH : ${pkgs.lib.makeBinPath [
                   pkgs.android-tools
                   pkgs.gawk
                 ]}
-              substituteInPlace $out/share/systemd/user/textbridge-server.service \
-                --replace-fail "%h/.local/lib/textbridge/textbridge_server.py" \
-                "$out/bin/textbridge-server"
 
               runHook postInstall
             '';
@@ -239,32 +122,13 @@
           };
 
           default = self.packages.${system}.textbridge-server;
-          install-android-skills = mkInstallAndroidSkills pkgs;
         });
 
-      checks = forAllSystems (system:
-        let
-          pkgs = pkgsFor system;
-        in
-        {
-          textbridge-server = self.packages.${system}.textbridge-server;
-          fcitx5-textbridge = self.packages.${system}.fcitx5-textbridge;
-          textbridge-adb-connect = pkgs.runCommand "textbridge-adb-connect-test"
-            {
-              nativeBuildInputs = [
-                pkgs.python3
-                pkgs.gawk
-              ];
-            }
-            ''
-              cp ${./textbridge/tools/textbridge-adb-connect} ./textbridge-adb-connect
-              cp ${./textbridge/tools/test_textbridge_adb_connect.py} ./test_textbridge_adb_connect.py
-              chmod +x ./textbridge-adb-connect ./test_textbridge_adb_connect.py
-              patchShebangs ./textbridge-adb-connect ./test_textbridge_adb_connect.py
-              python3 ./test_textbridge_adb_connect.py
-              touch $out
-            '';
-        });
+      checks = forAllSystems (system: {
+        textbridge-server = self.packages.${system}.textbridge-server;
+        textbridge-adb-connect = self.packages.${system}.textbridge-adb-connect;
+        fcitx5-textbridge = self.packages.${system}.fcitx5-textbridge;
+      });
 
       apps = forAllSystems (system: {
         textbridge-server = {
@@ -276,16 +140,9 @@
         };
         textbridge-adb-connect = {
           type = "app";
-          program = "${self.packages.${system}.textbridge-server}/bin/textbridge-adb-connect";
+          program = "${self.packages.${system}.textbridge-adb-connect}/bin/textbridge-adb-connect";
           meta = {
             description = "Create an adb reverse tunnel for TextBridge USB/ADB mode";
-          };
-        };
-        install-android-skills = {
-          type = "app";
-          program = "${self.packages.${system}.install-android-skills}/bin/install-android-skills";
-          meta = {
-            description = "Install TextBridge project-local Android agent skills";
           };
         };
       });
@@ -320,6 +177,21 @@
                 default = self.packages.${system}.textbridge-server;
                 defaultText = lib.literalExpression "inputs.textbridge.packages.\${pkgs.system}.textbridge-server";
                 description = "Package providing the TextBridge HTTP server.";
+              };
+
+              adbHelper = {
+                enable = lib.mkOption {
+                  type = lib.types.bool;
+                  default = true;
+                  description = "Whether to install the textbridge-adb-connect helper for USB/ADB transport.";
+                };
+
+                package = lib.mkOption {
+                  type = lib.types.package;
+                  default = self.packages.${system}.textbridge-adb-connect;
+                  defaultText = lib.literalExpression "inputs.textbridge.packages.\${pkgs.system}.textbridge-adb-connect";
+                  description = "Package providing the textbridge-adb-connect helper.";
+                };
               };
 
               tokenFile = lib.mkOption {
@@ -416,7 +288,7 @@
                 }
               ];
 
-              environment.systemPackages = [ cfg.package ];
+              environment.systemPackages = [ cfg.package ] ++ lib.optional cfg.adbHelper.enable cfg.adbHelper.package;
 
               networking.firewall = lib.mkIf cfg.openFirewall {
                 allowedTCPPorts = [ cfg.port ];
@@ -446,14 +318,6 @@
       devShells = forAllSystems (system:
         let
           pkgs = pkgsFor system;
-          androidComposition = pkgs.androidenv.composeAndroidPackages {
-            platformVersions = [ "37" ];
-            buildToolsVersions = [ "37.0.0" ];
-            includeEmulator = false;
-            includeSystemImages = false;
-          };
-          androidSdk = androidComposition.androidsdk;
-          installAndroidSkills = mkInstallAndroidSkills pkgs;
         in
         {
           server = pkgs.mkShell {
@@ -479,43 +343,14 @@
               pkgs.ninja
               pkgs.pkg-config
               pkgs.fcitx5
-              pkgs.android-cli
-              pkgs.gradle_9
-              pkgs.jdk17
-              pkgs.android-tools
-              pkgs.jadx
-              pkgs.kotlin
-              pkgs.kotlin-language-server
-              pkgs.ktlint
-              pkgs.protobuf
               pkgs.ripgrep
-              pkgs.scrcpy
-              installAndroidSkills
-              androidSdk
             ];
 
-            TEXTBRIDGE_NIX_ANDROID_SDK = "${androidSdk}/libexec/android-sdk";
-            TEXTBRIDGE_REQUIRED_ANDROID_PLATFORM = "android-37.0";
-            TEXTBRIDGE_REQUIRED_ANDROID_BUILD_TOOLS = "37.0.0";
-            JAVA_HOME = pkgs.jdk17.home;
-
             shellHook = ''
-              external_android_sdk="''${ANDROID_HOME:-''${ANDROID_SDK_ROOT:-''${XDG_LIB_HOME:-$HOME/Lib}/Android/Sdk}}"
-              if [ -d "$external_android_sdk/platforms/$TEXTBRIDGE_REQUIRED_ANDROID_PLATFORM" ] && [ -d "$external_android_sdk/build-tools/$TEXTBRIDGE_REQUIRED_ANDROID_BUILD_TOOLS" ]; then
-                export ANDROID_HOME="$external_android_sdk"
-                android_sdk_source="Android Studio SDK"
-              else
-                export ANDROID_HOME="$TEXTBRIDGE_NIX_ANDROID_SDK"
-                android_sdk_source="Nix Android SDK"
-              fi
-              export ANDROID_SDK_ROOT="$ANDROID_HOME"
-              export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/$TEXTBRIDGE_REQUIRED_ANDROID_BUILD_TOOLS:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-              ${installAndroidSkills}/bin/install-android-skills "$PWD"
               echo "TextBridge dev shell"
-              echo "  Android SDK: $android_sdk_source at $ANDROID_HOME"
-              echo "  Android:  cd textbridge/android && gradle assembleDebug"
               echo "  Server:   python3 textbridge/desktop/server/textbridge_server.py --init-config"
               echo "  Fcitx5:   cmake -S textbridge/desktop/fcitx5-addon -B build/fcitx5-addon -GNinja"
+              echo "  Android:  use spreadconfig's Android template/dev environment"
             '';
           };
         });
