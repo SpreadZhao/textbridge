@@ -16,6 +16,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -112,14 +113,16 @@ class MainActivity : Activity() {
         try {
             DatagramSocket().use { socket ->
                 socket.broadcast = true
-                socket.send(
-                    DatagramPacket(
-                        requestBytes,
-                        requestBytes.size,
-                        InetAddress.getByName(DISCOVERY_BROADCAST_ADDRESS),
-                        DISCOVERY_PORT,
-                    ),
-                )
+                for (target in discoveryBroadcastTargets()) {
+                    socket.send(
+                        DatagramPacket(
+                            requestBytes,
+                            requestBytes.size,
+                            target,
+                            DISCOVERY_PORT,
+                        ),
+                    )
+                }
 
                 while (true) {
                     val remainingMs = deadline - SystemClock.elapsedRealtime()
@@ -144,6 +147,40 @@ class MainActivity : Activity() {
         }
 
         return offers.values.toList()
+    }
+
+    private fun discoveryBroadcastTargets(): List<InetAddress> {
+        val targets = LinkedHashMap<String, InetAddress>()
+
+        fun addTarget(address: InetAddress) {
+            if (!address.isLoopbackAddress) {
+                targets[address.hostAddress ?: address.hostName] = address
+            }
+        }
+
+        try {
+            addTarget(InetAddress.getByName(DISCOVERY_BROADCAST_ADDRESS))
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to add limited broadcast target: ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                if (!networkInterface.isUp || networkInterface.isLoopback) {
+                    continue
+                }
+                for (address in networkInterface.interfaceAddresses) {
+                    val broadcast = address.broadcast ?: continue
+                    addTarget(broadcast)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to enumerate broadcast targets: ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        return targets.values.toList()
     }
 
     private fun parseDiscoveryOffer(packet: DatagramPacket, requestId: String): DiscoveryOffer? {
