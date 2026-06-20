@@ -1,5 +1,7 @@
 package io.github.textbridge.android
 
+import android.text.format.DateFormat
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,11 +32,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,6 +53,11 @@ fun TextBridgeScreen(
     onSend: () -> Unit,
     onSelectOffer: (DiscoveryOffer) -> Unit,
     onDismissOfferChooser: () -> Unit,
+    onUseHistoryItem: (SendHistoryItem) -> Unit,
+    onDeleteHistoryItem: (SendHistoryItem) -> Unit,
+    onRequestClearHistory: () -> Unit,
+    onDismissClearHistory: () -> Unit,
+    onConfirmClearHistory: () -> Unit,
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -175,6 +184,13 @@ fun TextBridgeScreen(
                 )
             }
 
+            HistorySection(
+                history = state.sendHistory,
+                onUseHistoryItem = onUseHistoryItem,
+                onDeleteHistoryItem = onDeleteHistoryItem,
+                onRequestClearHistory = onRequestClearHistory,
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
         }
     }
@@ -184,6 +200,24 @@ fun TextBridgeScreen(
             offers = state.discoveryChoices,
             onSelectOffer = onSelectOffer,
             onDismiss = onDismissOfferChooser,
+        )
+    }
+
+    if (state.showClearHistoryConfirm) {
+        AlertDialog(
+            onDismissRequest = onDismissClearHistory,
+            title = { Text(stringResource(R.string.clear_history_title)) },
+            text = { Text(stringResource(R.string.clear_history_message)) },
+            confirmButton = {
+                TextButton(onClick = onConfirmClearHistory) {
+                    Text(stringResource(R.string.clear_history_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissClearHistory) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
         )
     }
 }
@@ -214,4 +248,108 @@ private fun DiscoveryChooserDialog(
         },
         confirmButton = {},
     )
+}
+
+@Composable
+private fun HistorySection(
+    history: List<SendHistoryItem>,
+    onUseHistoryItem: (SendHistoryItem) -> Unit,
+    onDeleteHistoryItem: (SendHistoryItem) -> Unit,
+    onRequestClearHistory: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.send_history),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (history.isNotEmpty()) {
+                TextButton(onClick = onRequestClearHistory) {
+                    Text(stringResource(R.string.clear_history))
+                }
+            }
+        }
+
+        if (history.isEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Text(
+                    text = stringResource(R.string.empty_history),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+        } else {
+            history.forEach { item ->
+                HistoryItemRow(
+                    item = item,
+                    onUseHistoryItem = onUseHistoryItem,
+                    onDeleteHistoryItem = onDeleteHistoryItem,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryItemRow(
+    item: SendHistoryItem,
+    onUseHistoryItem: (SendHistoryItem) -> Unit,
+    onDeleteHistoryItem: (SendHistoryItem) -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onUseHistoryItem(item) },
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "${formatHistoryTime(item.sentAtMillis)}  ${item.address}",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                TextButton(
+                    onClick = { onDeleteHistoryItem(item) },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
+                    Text(stringResource(R.string.delete_history_item))
+                }
+            }
+            Text(
+                text = item.text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 8.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun formatHistoryTime(sentAtMillis: Long): String {
+    return DateFormat.format("MM-dd HH:mm", sentAtMillis).toString()
 }

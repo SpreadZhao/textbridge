@@ -28,6 +28,11 @@ class MainActivity : ComponentActivity() {
                     onSend = viewModel::sendCurrentText,
                     onSelectOffer = viewModel::selectDiscoveryOffer,
                     onDismissOfferChooser = viewModel::dismissDiscoveryChooser,
+                    onUseHistoryItem = viewModel::useHistoryItem,
+                    onDeleteHistoryItem = viewModel::deleteHistoryItem,
+                    onRequestClearHistory = viewModel::requestClearHistory,
+                    onDismissClearHistory = viewModel::dismissClearHistory,
+                    onConfirmClearHistory = viewModel::clearHistory,
                 )
             }
         }

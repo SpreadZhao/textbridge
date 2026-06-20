@@ -40,6 +40,7 @@ class SettingsStore(context: Context) {
                 address = preferences[Keys.address].orEmpty(),
                 discoveryPort = preferences[Keys.discoveryPort] ?: DEFAULT_DISCOVERY_PORT,
                 token = preferences[Keys.token].orEmpty(),
+                sendHistory = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson]),
             )
         }
 
@@ -62,9 +63,36 @@ class SettingsStore(context: Context) {
         }
     }
 
+    suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem> {
+        var updated = emptyList<SendHistoryItem>()
+        appContext.textBridgeDataStore.edit { preferences ->
+            val current = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson])
+            updated = SendHistoryCodec.prepend(current, item)
+            preferences[Keys.sendHistoryJson] = SendHistoryCodec.encode(updated)
+        }
+        return updated
+    }
+
+    suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem> {
+        var updated = emptyList<SendHistoryItem>()
+        appContext.textBridgeDataStore.edit { preferences ->
+            val current = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson])
+            updated = SendHistoryCodec.remove(current, itemId)
+            preferences[Keys.sendHistoryJson] = SendHistoryCodec.encode(updated)
+        }
+        return updated
+    }
+
+    suspend fun clearSendHistory() {
+        appContext.textBridgeDataStore.edit { preferences ->
+            preferences[Keys.sendHistoryJson] = SendHistoryCodec.encode(emptyList())
+        }
+    }
+
     private object Keys {
         val address = stringPreferencesKey("address")
         val discoveryPort = intPreferencesKey("discovery_port")
         val token = stringPreferencesKey("token")
+        val sendHistoryJson = stringPreferencesKey("send_history_json")
     }
 }

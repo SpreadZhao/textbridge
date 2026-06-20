@@ -32,6 +32,7 @@ class TextBridgeViewModel(
                     address = settings.address,
                     discoveryPort = settings.discoveryPort.toString(),
                     token = settings.token,
+                    sendHistory = settings.sendHistory,
                 )
             }
         }
@@ -146,11 +147,71 @@ class TextBridgeViewModel(
                 )
             }
 
+            if (result.ok) {
+                val updatedHistory = settingsStore.addSendHistoryItem(
+                    SendHistoryItem(
+                        id = UUID.randomUUID().toString(),
+                        text = text,
+                        sentAtMillis = System.currentTimeMillis(),
+                        address = address,
+                    ),
+                )
+                _uiState.update {
+                    it.copy(
+                        body = "",
+                        status = result.message,
+                        isSending = false,
+                        sendHistory = updatedHistory,
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        status = result.message,
+                        isSending = false,
+                    )
+                }
+            }
+        }
+    }
+
+    fun useHistoryItem(item: SendHistoryItem) {
+        _uiState.update {
+            it.copy(
+                body = item.text,
+                status = "已从历史填入",
+            )
+        }
+    }
+
+    fun deleteHistoryItem(item: SendHistoryItem) {
+        viewModelScope.launch {
+            val updatedHistory = settingsStore.removeSendHistoryItem(item.id)
             _uiState.update {
                 it.copy(
-                    body = if (result.ok) "" else it.body,
-                    status = result.message,
-                    isSending = false,
+                    sendHistory = updatedHistory,
+                    status = "已删除历史记录",
+                )
+            }
+        }
+    }
+
+    fun requestClearHistory() {
+        _uiState.update { it.copy(showClearHistoryConfirm = true) }
+    }
+
+    fun dismissClearHistory() {
+        _uiState.update { it.copy(showClearHistoryConfirm = false) }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch {
+            settingsStore.clearSendHistory()
+            _uiState.update {
+                it.copy(
+                    sendHistory = emptyList(),
+                    showClearHistoryConfirm = false,
+                    status = "已清空历史记录",
                 )
             }
         }

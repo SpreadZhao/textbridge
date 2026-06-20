@@ -11,4 +11,12 @@
     <string name="send">发送</string>
     <string name="send_progress">发送中...</string>
     <string name="status_idle">状态：待发送</string>
+    <string name="send_history">历史记录</string>
+    <string name="empty_history">暂无历史记录</string>
+    <string name="clear_history">清空</string>
+    <string name="delete_history_item">删除</string>
+    <string name="clear_history_title">清空历史记录？</string>
+    <string name="clear_history_message">这会删除手机上保存的所有发送历史。</string>
+    <string name="clear_history_confirm">清空</string>
+    <string name="cancel">取消</string>
 </resources>
