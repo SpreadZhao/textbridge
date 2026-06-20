@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/textbridge_background"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/computer_address"
+            android:textColor="@color/textbridge_muted"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/addressEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:autofillHints="url"
+            android:hint="192.168.1.20:17321"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:textColor="@color/textbridge_text"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/access_token"
+            android:textColor="@color/textbridge_muted"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/tokenEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:autofillHints="password"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:textColor="@color/textbridge_text"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/text_to_send"
+            android:textColor="@color/textbridge_muted"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/bodyEdit"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:layout_marginTop="6dp"
+            android:background="@color/textbridge_surface"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textCapSentences"
+            android:minLines="8"
+            android:padding="12dp"
+            android:scrollbars="vertical"
+            android:textColor="@color/textbridge_text"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/sendButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="18dp"
+            android:text="@string/send"
+            android:textAllCaps="false"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/statusView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/status_idle"
+            android:textColor="@color/textbridge_muted"
+            android:textSize="15sp" />
+    </LinearLayout>
+</ScrollView>

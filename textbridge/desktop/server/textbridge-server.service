@@ -1,0 +1,12 @@
+[Unit]
+Description=TextBridge Wi-Fi server
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/textbridge/textbridge_server.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

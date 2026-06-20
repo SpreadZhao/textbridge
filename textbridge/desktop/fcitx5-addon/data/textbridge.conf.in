@@ -1,0 +1,9 @@
+[Addon]
+Name=TextBridge
+Category=Module
+Version=@PROJECT_VERSION@
+Library=textbridge
+Type=SharedLibrary
+OnDemand=False
+Configurable=False
+Description=Commit TextBridge Wi-Fi text into the focused Fcitx5 input context

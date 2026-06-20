@@ -1,0 +1,7 @@
+{
+  "listen_host": "192.168.1.20",
+  "listen_port": 17321,
+  "token": "replace-with-output-of-textbridge_server.py---init-config",
+  "max_text_bytes": 16384,
+  "request_timeout_ms": 2000
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="textbridge_background">#F7F7F4</color>
+    <color name="textbridge_surface">#FFFFFF</color>
+    <color name="textbridge_text">#1F2328</color>
+    <color name="textbridge_muted">#59636E</color>
+    <color name="textbridge_accent">#0B6E4F</color>
+</resources>
