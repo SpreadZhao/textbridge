@@ -50,6 +50,26 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/discovery_port"
+            android:textColor="@color/textbridge_muted"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/discoveryPortEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:hint="17322"
+            android:inputType="number"
+            android:maxLength="5"
+            android:singleLine="true"
+            android:textColor="@color/textbridge_text"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
             android:text="@string/access_token"
             android:textColor="@color/textbridge_muted"

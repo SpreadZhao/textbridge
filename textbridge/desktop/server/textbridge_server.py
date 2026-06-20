@@ -64,6 +64,10 @@ class ServerConfig:
     device_name: str = field(default_factory=socket.gethostname)
 
 
+class ConfigError(Exception):
+    pass
+
+
 def validate_addon_response(response: dict[str, Any], request_id: str) -> dict[str, Any]:
     if response.get("v") != 1:
         raise OSError("invalid fcitx response version")
@@ -100,6 +104,29 @@ def default_runtime_dir() -> Path:
     return xdg_runtime_dir() / "textbridge"
 
 
+def load_token(raw: dict[str, Any], config_path: Path) -> str:
+    token_file = raw.get("token_file")
+    if token_file is not None:
+        token_path = Path(str(token_file)).expanduser()
+        if not token_path.is_absolute():
+            token_path = config_path.parent / token_path
+        try:
+            token = token_path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ConfigError(f"cannot read token_file {token_path}: {exc.strerror}") from exc
+        if token == "":
+            raise ConfigError(f"token_file {token_path} is empty")
+        return token
+
+    token = raw.get("token")
+    if token is None:
+        raise ConfigError("server config must set token_file or token")
+    token_value = str(token)
+    if token_value == "":
+        raise ConfigError("token must not be empty")
+    return token_value
+
+
 def load_config(path: Path) -> ServerConfig:
     with path.open("r", encoding="utf-8") as fp:
         raw = json.load(fp)
@@ -110,7 +137,7 @@ def load_config(path: Path) -> ServerConfig:
     return ServerConfig(
         listen_host=str(raw["listen_host"]),
         listen_port=int(raw.get("listen_port", DEFAULT_PORT)),
-        token=str(raw["token"]),
+        token=load_token(raw, path),
         max_text_bytes=int(raw.get("max_text_bytes", DEFAULT_MAX_TEXT_BYTES)),
         request_timeout_ms=int(raw.get("request_timeout_ms", DEFAULT_TIMEOUT_MS)),
         runtime_dir=runtime_dir,
@@ -442,8 +469,12 @@ def main(argv: list[str]) -> int:
         init_config(args.config, args.listen_host, args.listen_port)
         return 0
 
-    config = load_config(args.config)
-    run(config)
+    try:
+        config = load_config(args.config)
+        run(config)
+    except ConfigError as exc:
+        logging.error("configuration error: %s", exc)
+        return 1
     return 0
 
 

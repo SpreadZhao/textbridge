@@ -1,4 +1,4 @@
-# TextBridge Wi-Fi MVP
+# TextBridge
 
 TextBridge 把 Android 手机上输入的最终文本，经局域网 HTTP POST 转发到 Linux 桌面，并由 Fcitx5 插件调用 `InputContext::commitString()` 提交到当前获得焦点的输入框。Rime 和雾凇拼音不需要修改。
 
@@ -37,7 +37,7 @@ nix develop path:.#desktop
 nix flake check path:.
 ```
 
-## 阶段 A：Fcitx 本地闭环
+## Fcitx 本地闭环
 
 构建插件：
 
@@ -67,7 +67,7 @@ python3 textbridge/tools/send_test.py "中文 ASCII emoji 😀
 
 若当前没有普通输入焦点，预期返回 `no_focused_input`；若 Rime/Fcitx 正在组词，预期返回 `busy_composing`；密码或敏感输入框返回 `sensitive_field`。
 
-## 阶段 B：桌面 HTTP 服务
+## 桌面 HTTP 服务
 
 初始化配置：
 
@@ -107,7 +107,7 @@ curl -sS \
 nix develop path:.#server -c python3 textbridge/desktop/server/test_textbridge_server.py
 ```
 
-## systemd 用户服务
+## NixOS 模块
 
 Nix 打包：
 
@@ -115,15 +115,42 @@ Nix 打包：
 nix build path:.#textbridge-server
 ```
 
-打包结果提供 `bin/textbridge-server` 和已替换为 Nix store 路径的 systemd user unit。也可以手动复制源码版本：
+推荐用 TextBridge 的 NixOS server module 管理 Python server、systemd 用户服务、server 配置和防火墙端口。访问令牌通过 `tokenFile` 在运行时读取，不会写进 Nix store：
+
+```nix
+{
+  imports = [
+    inputs.textbridge.nixosModules.server
+  ];
+
+  sops.secrets.textbridge-token = {
+    owner = "spreadzhao";
+    group = "users";
+    mode = "0400";
+  };
+
+  services.textbridge.server = {
+    enable = true;
+    tokenFile = config.sops.secrets.textbridge-token.path;
+    listenHost = "0.0.0.0";
+    port = 17321;
+    discovery.port = 17322;
+  };
+}
+```
+
+生成令牌示例：
 
 ```sh
-install -Dm755 textbridge/desktop/server/textbridge_server.py \
-  ~/.local/lib/textbridge/textbridge_server.py
-install -Dm644 textbridge/desktop/server/textbridge-server.service \
-  ~/.config/systemd/user/textbridge-server.service
-systemctl --user daemon-reload
-systemctl --user enable --now textbridge-server.service
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Fcitx5 插件仍按输入法配置接入：
+
+```nix
+i18n.inputMethod.fcitx5.addons = [
+  inputs.textbridge.packages.${pkgs.system}.fcitx5-textbridge
+];
 ```
 
 查看日志：
@@ -132,33 +159,7 @@ systemctl --user enable --now textbridge-server.service
 journalctl --user -u textbridge-server -f
 ```
 
-也可以在 NixOS flake 配置中直接启用模块：
-
-```nix
-{
-  inputs.textbridge.url = "path:/home/spreadzhao/workspaces/rime-android-remote";
-
-  outputs = { self, nixpkgs, textbridge, ... }: {
-    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        textbridge.nixosModules.textbridge
-        {
-          services.textbridge.enable = true;
-        }
-      ];
-    };
-  };
-}
-```
-
-模块会把 Fcitx5 插件加入 `i18n.inputMethod.fcitx5.addons`，并安装用户级 `textbridge-server.service`。首次启用前仍需要为当前用户生成配置：
-
-```sh
-textbridge-server --init-config --listen-host 192.168.1.20
-```
-
-## 阶段 C：Android App
+## Android App
 
 构建 debug APK：
 
@@ -173,17 +174,16 @@ gradle assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-App 单屏包含电脑地址、扫描电脑、访问令牌、多行文本框和发送按钮。扫描只发现电脑地址，不传输或填充访问令牌。地址和令牌保存在 `SharedPreferences`；只有服务端返回 `status=ok` 时才清空正文，失败会保留正文。
+App 单屏包含电脑地址、发现端口、扫描电脑、访问令牌、多行文本框和发送按钮。扫描只发现电脑地址，不传输或填充访问令牌。发现端口需要和 `services.textbridge.server.discovery.port` 一致。地址、发现端口和令牌保存在 `SharedPreferences`；只有服务端返回 `status=ok` 时才清空正文，失败会保留正文。
 
 ## 安全边界
 
-MVP 使用局域网明文 HTTP，仅适合本人控制的家庭或开发网络。不要在公共 Wi-Fi、校园访客网络、酒店网络或不可信局域网中发送敏感内容。
+当前版本使用局域网明文 HTTP，仅适合本人控制的家庭或开发网络。不要在公共 Wi-Fi、校园访客网络、酒店网络或不可信局域网中发送敏感内容。
 
 最低要求：
 
-- 使用初始化命令生成的随机令牌；
-- 服务绑定明确的局域网 IP；
-- 防火墙只允许本地子网访问 `17321/tcp` 和 `17322/udp`；
+- 使用随机令牌，并通过 `tokenFile` 或同等秘密管理方式提供给 server；
+- 防火墙只允许本地子网访问配置的 HTTP TCP 端口和 discovery UDP 端口；
 - 不记录正文和令牌；
 - 对密码或敏感输入框尽力拒绝；
 - 单次文本默认限制为 16 KiB。

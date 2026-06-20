@@ -1,5 +1,5 @@
 {
-  description = "TextBridge Wi-Fi MVP development environment";
+  description = "TextBridge development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -102,63 +102,158 @@
         };
       });
 
-      nixosModules = {
-        textbridge = { config, lib, pkgs, ... }:
+      nixosModules =
+        let
+          serverModule = { config, lib, pkgs, ... }:
           let
-            cfg = config.services.textbridge;
+            cfg = config.services.textbridge.server;
             system = pkgs.stdenv.hostPlatform.system;
+            serverConfig = pkgs.writeText "textbridge-server.json" (builtins.toJSON ({
+              listen_host = cfg.listenHost;
+              listen_port = cfg.port;
+              token_file = cfg.tokenFile;
+              max_text_bytes = cfg.maxTextBytes;
+              request_timeout_ms = cfg.requestTimeoutMs;
+              discovery_enabled = cfg.discovery.enable;
+              discovery_port = cfg.discovery.port;
+              device_name = cfg.deviceName;
+            } // lib.optionalAttrs (cfg.runtimeDir != null) {
+              runtime_dir = cfg.runtimeDir;
+            } // lib.optionalAttrs (cfg.fcitxSocket != null) {
+              fcitx_socket = cfg.fcitxSocket;
+            }));
           in
           {
-            options.services.textbridge = {
-              enable = lib.mkEnableOption "TextBridge Wi-Fi desktop receiver";
+            options.services.textbridge.server = {
+              enable = lib.mkEnableOption "TextBridge Wi-Fi desktop server";
 
-              enableServer = lib.mkOption {
-                type = lib.types.bool;
-                default = true;
-                description = "Whether to install and enable the TextBridge user service.";
-              };
-
-              configPath = lib.mkOption {
-                type = lib.types.str;
-                default = "%h/.config/textbridge/server.json";
-                description = "Path to the per-user TextBridge server configuration.";
-              };
-
-              serverPackage = lib.mkOption {
+              package = lib.mkOption {
                 type = lib.types.package;
                 default = self.packages.${system}.textbridge-server;
                 defaultText = lib.literalExpression "inputs.textbridge.packages.\${pkgs.system}.textbridge-server";
                 description = "Package providing the TextBridge HTTP server.";
               };
 
-              fcitx5AddonPackage = lib.mkOption {
-                type = lib.types.package;
-                default = self.packages.${system}.fcitx5-textbridge;
-                defaultText = lib.literalExpression "inputs.textbridge.packages.\${pkgs.system}.fcitx5-textbridge";
-                description = "Package providing the Fcitx5 TextBridge addon.";
+              tokenFile = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+                description = "Path to a file containing the TextBridge bearer token. This value is read at runtime and must not point into the Nix store.";
+              };
+
+              listenHost = lib.mkOption {
+                type = lib.types.str;
+                default = "0.0.0.0";
+                description = "Address the HTTP server listens on.";
+              };
+
+              port = lib.mkOption {
+                type = lib.types.port;
+                default = 17321;
+                description = "TCP port for the TextBridge HTTP commit API.";
+              };
+
+              maxTextBytes = lib.mkOption {
+                type = lib.types.ints.positive;
+                default = 16 * 1024;
+                description = "Maximum UTF-8 text payload size accepted by the server.";
+              };
+
+              requestTimeoutMs = lib.mkOption {
+                type = lib.types.ints.positive;
+                default = 2000;
+                description = "Timeout in milliseconds while waiting for the Fcitx addon response.";
+              };
+
+              runtimeDir = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+                description = "Optional runtime directory for the Fcitx Unix datagram socket.";
+              };
+
+              fcitxSocket = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+                description = "Optional path to the Fcitx addon Unix datagram socket.";
+              };
+
+              deviceName = lib.mkOption {
+                type = lib.types.str;
+                default = config.networking.hostName;
+                defaultText = lib.literalExpression "config.networking.hostName";
+                description = "Device name advertised in discovery responses.";
+              };
+
+              enableUserService = lib.mkOption {
+                type = lib.types.bool;
+                default = true;
+                description = "Whether to install and enable the TextBridge user service.";
+              };
+
+              openFirewall = lib.mkOption {
+                type = lib.types.bool;
+                default = true;
+                description = "Whether to open the configured HTTP and discovery ports in the NixOS firewall.";
+              };
+
+              discovery = {
+                enable = lib.mkOption {
+                  type = lib.types.bool;
+                  default = true;
+                  description = "Whether to enable UDP LAN discovery.";
+                };
+
+                port = lib.mkOption {
+                  type = lib.types.port;
+                  default = 17322;
+                  description = "UDP port used for TextBridge LAN discovery.";
+                };
               };
             };
 
             config = lib.mkIf cfg.enable {
-              environment.systemPackages = [ cfg.serverPackage ];
-              i18n.inputMethod.fcitx5.addons = [ cfg.fcitx5AddonPackage ];
+              assertions = [
+                {
+                  assertion = cfg.tokenFile != null;
+                  message = ''
+                    services.textbridge.server.tokenFile must be set.
+                    Generate a token with:
+                      python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+                    Then provide it through sops-nix, for example:
+                      services.textbridge.server.tokenFile = config.sops.secrets.textbridge-token.path;
+                  '';
+                }
+                {
+                  assertion = cfg.tokenFile == null || !(lib.hasPrefix "/nix/store/" cfg.tokenFile);
+                  message = "services.textbridge.server.tokenFile must not point into the Nix store.";
+                }
+              ];
 
-              systemd.user.services.textbridge-server = lib.mkIf cfg.enableServer {
+              environment.systemPackages = [ cfg.package ];
+
+              networking.firewall = lib.mkIf cfg.openFirewall {
+                allowedTCPPorts = [ cfg.port ];
+                allowedUDPPorts = lib.mkIf cfg.discovery.enable [ cfg.discovery.port ];
+              };
+
+              systemd.user.services.textbridge-server = lib.mkIf cfg.enableUserService {
                 description = "TextBridge Wi-Fi server";
                 after = [ "network-online.target" ];
                 wantedBy = [ "default.target" ];
                 serviceConfig = {
                   Type = "simple";
-                  ExecStart = "${cfg.serverPackage}/bin/textbridge-server --config ${cfg.configPath}";
+                  ExecStart = "${cfg.package}/bin/textbridge-server --config ${serverConfig}";
                   Restart = "on-failure";
                   RestartSec = 2;
                 };
               };
             };
           };
-
-        default = self.nixosModules.textbridge;
-      };
+        in
+        {
+          server = serverModule;
+          textbridge = serverModule;
+          default = serverModule;
+        };
 
       devShells = forAllSystems (system:
         let

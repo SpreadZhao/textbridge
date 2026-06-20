@@ -26,6 +26,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var addressEdit: EditText
+    private lateinit var discoveryPortEdit: EditText
     private lateinit var tokenEdit: EditText
     private lateinit var bodyEdit: EditText
     private lateinit var scanButton: Button
@@ -39,6 +40,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
 
         addressEdit = findViewById(R.id.addressEdit)
+        discoveryPortEdit = findViewById(R.id.discoveryPortEdit)
         tokenEdit = findViewById(R.id.tokenEdit)
         bodyEdit = findViewById(R.id.bodyEdit)
         scanButton = findViewById(R.id.scanButton)
@@ -49,6 +51,7 @@ class MainActivity : Activity() {
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         addressEdit.setText(prefs.getString(KEY_ADDRESS, ""))
+        discoveryPortEdit.setText(prefs.getInt(KEY_DISCOVERY_PORT, DEFAULT_DISCOVERY_PORT).toString())
         tokenEdit.setText(prefs.getString(KEY_TOKEN, ""))
 
         scanButton.setOnClickListener { scanForComputers() }
@@ -61,12 +64,23 @@ class MainActivity : Activity() {
     }
 
     private fun scanForComputers() {
+        val discoveryPort = discoveryPortEdit.text.toString().trim().toIntOrNull()
+        if (discoveryPort == null || discoveryPort !in 1..65535) {
+            statusView.text = "状态：发现端口无效"
+            return
+        }
+
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_DISCOVERY_PORT, discoveryPort)
+            .apply()
+
         setScanning(true)
         statusView.text = "状态：正在扫描..."
         val startedAt = SystemClock.elapsedRealtime()
 
         executor.execute {
-            val offers = discoverComputers()
+            val offers = discoverComputers(discoveryPort)
             val remainingMs = DISCOVERY_TIMEOUT_MS - (SystemClock.elapsedRealtime() - startedAt)
             if (remainingMs > 0) {
                 try {
@@ -99,7 +113,7 @@ class MainActivity : Activity() {
         scanButton.text = if (scanning) getString(R.string.scan_computer_progress) else getString(R.string.scan_computer)
     }
 
-    private fun discoverComputers(): List<DiscoveryOffer> {
+    private fun discoverComputers(discoveryPort: Int): List<DiscoveryOffer> {
         val requestId = UUID.randomUUID().toString()
         val requestBytes = JSONObject()
             .put("v", 1)
@@ -119,7 +133,7 @@ class MainActivity : Activity() {
                             requestBytes,
                             requestBytes.size,
                             target,
-                            DISCOVERY_PORT,
+                            discoveryPort,
                         ),
                     )
                 }
@@ -372,10 +386,11 @@ class MainActivity : Activity() {
     companion object {
         private const val PREFS_NAME = "textbridge"
         private const val KEY_ADDRESS = "address"
+        private const val KEY_DISCOVERY_PORT = "discovery_port"
         private const val KEY_TOKEN = "token"
         private const val TAG = "TextBridge"
         private const val DISCOVERY_BROADCAST_ADDRESS = "255.255.255.255"
-        private const val DISCOVERY_PORT = 17322
+        private const val DEFAULT_DISCOVERY_PORT = 17322
         private const val DISCOVERY_TIMEOUT_MS = 2000L
         private const val MAX_DISCOVERY_DATAGRAM_BYTES = 2048
     }

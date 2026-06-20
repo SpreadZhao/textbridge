@@ -1,6 +1,6 @@
-# TextBridge Wi-Fi MVP
+# TextBridge
 
-本仓库按 `textbridge_wifi_mvp_plan.md` 初始化为多个独立工程：
+本仓库包含 TextBridge 的 Android 发送端、Linux 桌面接收端和 Fcitx5 插件：
 
 - `textbridge/android`：Android Kotlin 单屏发送端。
 - `textbridge/desktop/server`：Python 标准库 HTTP 到 Unix datagram 转发服务。

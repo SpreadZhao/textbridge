@@ -15,6 +15,68 @@ from pathlib import Path
 import textbridge_server
 
 
+class ConfigTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.tmp.name) / "server.json"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def write_config(self, payload: dict[str, object]) -> None:
+        base: dict[str, object] = {
+            "listen_host": "127.0.0.1",
+            "listen_port": 0,
+        }
+        base.update(payload)
+        self.config_path.write_text(json.dumps(base), encoding="utf-8")
+
+    def test_load_config_reads_token_file(self) -> None:
+        token_path = Path(self.tmp.name) / "token"
+        token_path.write_text("file-token\n", encoding="utf-8")
+        self.write_config({"token_file": str(token_path)})
+
+        config = textbridge_server.load_config(self.config_path)
+
+        self.assertEqual(config.token, "file-token")
+
+    def test_load_config_reads_relative_token_file(self) -> None:
+        token_path = Path(self.tmp.name) / "token"
+        token_path.write_text("relative-token\n", encoding="utf-8")
+        self.write_config({"token_file": "token"})
+
+        config = textbridge_server.load_config(self.config_path)
+
+        self.assertEqual(config.token, "relative-token")
+
+    def test_load_config_keeps_legacy_token(self) -> None:
+        self.write_config({"token": "legacy-token"})
+
+        config = textbridge_server.load_config(self.config_path)
+
+        self.assertEqual(config.token, "legacy-token")
+
+    def test_load_config_rejects_missing_token_file(self) -> None:
+        self.write_config({"token_file": str(Path(self.tmp.name) / "missing")})
+
+        with self.assertRaises(textbridge_server.ConfigError):
+            textbridge_server.load_config(self.config_path)
+
+    def test_load_config_rejects_empty_token_file(self) -> None:
+        token_path = Path(self.tmp.name) / "token"
+        token_path.write_text("\n", encoding="utf-8")
+        self.write_config({"token_file": str(token_path)})
+
+        with self.assertRaises(textbridge_server.ConfigError):
+            textbridge_server.load_config(self.config_path)
+
+    def test_load_config_requires_token_source(self) -> None:
+        self.write_config({})
+
+        with self.assertRaises(textbridge_server.ConfigError):
+            textbridge_server.load_config(self.config_path)
+
+
 class FakeFcitxSocket:
     def __init__(
         self,
