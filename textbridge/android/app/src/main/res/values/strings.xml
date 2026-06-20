@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TextBridge</string>
+    <string name="nav_send">发送</string>
+    <string name="nav_history">历史</string>
+    <string name="nav_settings">配置</string>
     <string name="computer_address">电脑地址</string>
     <string name="scan_computer">扫描电脑</string>
     <string name="scan_computer_progress">扫描中...</string>
     <string name="select_computer">选择电脑</string>
     <string name="discovery_port">发现端口</string>
     <string name="access_token">访问令牌</string>
+    <string name="save_settings">保存配置</string>
+    <string name="unsaved_settings">配置未保存</string>
     <string name="text_to_send">要发送的文本</string>
     <string name="send">发送</string>
     <string name="send_progress">发送中...</string>

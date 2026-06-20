@@ -24,10 +24,22 @@ private val Context.textBridgeDataStore: DataStore<Preferences> by preferencesDa
     },
 )
 
-class SettingsStore(context: Context) {
+interface TextBridgeSettingsRepository {
+    val settings: Flow<TextBridgeSettings>
+
+    suspend fun saveAddress(address: String)
+    suspend fun saveDiscoveryPort(port: Int)
+    suspend fun saveConnectionSettings(address: String, discoveryPort: Int, token: String)
+    suspend fun saveAddressAndToken(address: String, token: String)
+    suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem>
+    suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem>
+    suspend fun clearSendHistory()
+}
+
+class SettingsStore(context: Context) : TextBridgeSettingsRepository {
     private val appContext = context.applicationContext
 
-    val settings: Flow<TextBridgeSettings> = appContext.textBridgeDataStore.data
+    override val settings: Flow<TextBridgeSettings> = appContext.textBridgeDataStore.data
         .catch { exception ->
             if (exception is IOException) {
                 emit(emptyPreferences())
@@ -44,26 +56,34 @@ class SettingsStore(context: Context) {
             )
         }
 
-    suspend fun saveAddress(address: String) {
+    override suspend fun saveAddress(address: String) {
         appContext.textBridgeDataStore.edit { preferences ->
             preferences[Keys.address] = address
         }
     }
 
-    suspend fun saveDiscoveryPort(port: Int) {
+    override suspend fun saveDiscoveryPort(port: Int) {
         appContext.textBridgeDataStore.edit { preferences ->
             preferences[Keys.discoveryPort] = port
         }
     }
 
-    suspend fun saveAddressAndToken(address: String, token: String) {
+    override suspend fun saveConnectionSettings(address: String, discoveryPort: Int, token: String) {
+        appContext.textBridgeDataStore.edit { preferences ->
+            preferences[Keys.address] = address
+            preferences[Keys.discoveryPort] = discoveryPort
+            preferences[Keys.token] = token
+        }
+    }
+
+    override suspend fun saveAddressAndToken(address: String, token: String) {
         appContext.textBridgeDataStore.edit { preferences ->
             preferences[Keys.address] = address
             preferences[Keys.token] = token
         }
     }
 
-    suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem> {
+    override suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem> {
         var updated = emptyList<SendHistoryItem>()
         appContext.textBridgeDataStore.edit { preferences ->
             val current = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson])
@@ -73,7 +93,7 @@ class SettingsStore(context: Context) {
         return updated
     }
 
-    suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem> {
+    override suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem> {
         var updated = emptyList<SendHistoryItem>()
         appContext.textBridgeDataStore.edit { preferences ->
             val current = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson])
@@ -83,7 +103,7 @@ class SettingsStore(context: Context) {
         return updated
     }
 
-    suspend fun clearSendHistory() {
+    override suspend fun clearSendHistory() {
         appContext.textBridgeDataStore.edit { preferences ->
             preferences[Keys.sendHistoryJson] = SendHistoryCodec.encode(emptyList())
         }

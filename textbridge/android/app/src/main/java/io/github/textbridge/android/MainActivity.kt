@@ -18,11 +18,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             TextBridgeTheme {
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
-                TextBridgeScreen(
+                TextBridgeApp(
                     state = uiState.value,
-                    onAddressChange = viewModel::onAddressChange,
-                    onDiscoveryPortChange = viewModel::onDiscoveryPortChange,
-                    onTokenChange = viewModel::onTokenChange,
+                    onSettingsAddressChange = viewModel::onSettingsAddressChange,
+                    onSettingsDiscoveryPortChange = viewModel::onSettingsDiscoveryPortChange,
+                    onSettingsTokenChange = viewModel::onSettingsTokenChange,
+                    onSaveSettings = viewModel::saveSettings,
                     onBodyChange = viewModel::onBodyChange,
                     onScan = viewModel::scanForComputers,
                     onSend = viewModel::sendCurrentText,

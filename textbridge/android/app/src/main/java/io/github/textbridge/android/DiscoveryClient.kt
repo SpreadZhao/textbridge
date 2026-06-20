@@ -11,10 +11,14 @@ import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
+interface TextBridgeDiscoveryClient {
+    fun discover(discoveryPort: Int): List<DiscoveryOffer>
+}
+
 class DiscoveryClient(
     private val elapsedRealtime: () -> Long = { SystemClock.elapsedRealtime() },
-) {
-    fun discover(discoveryPort: Int): List<DiscoveryOffer> {
+) : TextBridgeDiscoveryClient {
+    override fun discover(discoveryPort: Int): List<DiscoveryOffer> {
         val requestId = UUID.randomUUID().toString()
         val requestBytes = DiscoveryProtocol.requestBytes(requestId)
         val offers = LinkedHashMap<String, DiscoveryOffer>()

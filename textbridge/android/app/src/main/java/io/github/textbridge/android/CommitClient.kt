@@ -8,8 +8,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 
-class CommitClient {
-    fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
+interface TextBridgeCommitClient {
+    fun postCommit(address: String, token: String, requestId: String, text: String): SendResult
+}
+
+class CommitClient : TextBridgeCommitClient {
+    override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
         var connection: HttpURLConnection? = null
         return try {
             val body = CommitProtocol.requestBody(requestId, text)

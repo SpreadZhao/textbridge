@@ -3,6 +3,7 @@ package io.github.textbridge.android
 import android.text.format.DateFormat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,19 +12,26 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -34,20 +42,42 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
+import kotlinx.serialization.Serializable
+
+@Serializable
+private data object SendRoute : NavKey
+
+@Serializable
+private data object HistoryRoute : NavKey
+
+@Serializable
+private data object SettingsRoute : NavKey
+
+private data class TopLevelDestination(
+    val route: NavKey,
+    val labelRes: Int,
+    val icon: ImageVector,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TextBridgeScreen(
+fun TextBridgeApp(
     state: TextBridgeUiState,
-    onAddressChange: (String) -> Unit,
-    onDiscoveryPortChange: (String) -> Unit,
-    onTokenChange: (String) -> Unit,
+    onSettingsAddressChange: (String) -> Unit,
+    onSettingsDiscoveryPortChange: (String) -> Unit,
+    onSettingsTokenChange: (String) -> Unit,
+    onSaveSettings: () -> Unit,
     onBodyChange: (String) -> Unit,
     onScan: () -> Unit,
     onSend: () -> Unit,
@@ -59,6 +89,26 @@ fun TextBridgeScreen(
     onDismissClearHistory: () -> Unit,
     onConfirmClearHistory: () -> Unit,
 ) {
+    val backStack = rememberNavBackStack(SendRoute)
+    val destinations = listOf(
+        TopLevelDestination(SendRoute, R.string.nav_send, Icons.AutoMirrored.Filled.Send),
+        TopLevelDestination(HistoryRoute, R.string.nav_history, Icons.Filled.History),
+        TopLevelDestination(SettingsRoute, R.string.nav_settings, Icons.Filled.Settings),
+    )
+    val currentRoute = backStack.lastOrNull() ?: SendRoute
+
+    fun navigateTo(route: NavKey) {
+        if (currentRoute == route) {
+            return
+        }
+        while (backStack.size > 1) {
+            backStack.removeLastOrNull()
+        }
+        if (route != SendRoute) {
+            backStack.add(route)
+        }
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
@@ -69,129 +119,67 @@ fun TextBridgeScreen(
                 ),
             )
         },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-                .imePadding(),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedTextField(
-                    value = state.address,
-                    onValueChange = onAddressChange,
-                    modifier = Modifier.weight(1f),
-                    label = { Text(stringResource(R.string.computer_address)) },
-                    placeholder = { Text("192.168.1.20:17321") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next,
-                    ),
-                )
-
-                FilledTonalButton(
-                    onClick = onScan,
-                    enabled = !state.isScanning,
-                    modifier = Modifier
-                        .width(124.dp)
-                        .height(56.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                ) {
-                    Text(
-                        if (state.isScanning) {
-                            stringResource(R.string.scan_computer_progress)
-                        } else {
-                            stringResource(R.string.scan_computer)
+        bottomBar = {
+            NavigationBar {
+                destinations.forEach { destination ->
+                    NavigationBarItem(
+                        selected = currentRoute == destination.route,
+                        onClick = { navigateTo(destination.route) },
+                        icon = {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                            )
                         },
+                        label = { Text(stringResource(destination.labelRes)) },
                     )
                 }
             }
-
-            OutlinedTextField(
-                value = state.discoveryPort,
-                onValueChange = onDiscoveryPortChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.discovery_port)) },
-                placeholder = { Text(DEFAULT_DISCOVERY_PORT.toString()) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Next,
-                ),
+        },
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            NavDisplay(
+                backStack = backStack,
+                onBack = {
+                    if (backStack.size > 1) {
+                        backStack.removeLastOrNull()
+                    }
+                },
+                entryProvider = entryProvider {
+                    entry<SendRoute> {
+                        SendScreen(
+                            state = state,
+                            onBodyChange = onBodyChange,
+                            onSend = onSend,
+                        )
+                    }
+                    entry<HistoryRoute> {
+                        HistoryScreen(
+                            history = state.sendHistory,
+                            onUseHistoryItem = { item ->
+                                onUseHistoryItem(item)
+                                navigateTo(SendRoute)
+                            },
+                            onDeleteHistoryItem = onDeleteHistoryItem,
+                            onRequestClearHistory = onRequestClearHistory,
+                        )
+                    }
+                    entry<SettingsRoute> {
+                        SettingsScreen(
+                            state = state,
+                            onAddressChange = onSettingsAddressChange,
+                            onDiscoveryPortChange = onSettingsDiscoveryPortChange,
+                            onTokenChange = onSettingsTokenChange,
+                            onScan = onScan,
+                            onSaveSettings = onSaveSettings,
+                        )
+                    }
+                },
             )
-
-            OutlinedTextField(
-                value = state.token,
-                onValueChange = onTokenChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.access_token)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Next,
-                ),
-            )
-
-            OutlinedTextField(
-                value = state.body,
-                onValueChange = onBodyChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                label = { Text(stringResource(R.string.text_to_send)) },
-                minLines = 8,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.None,
-                ),
-            )
-
-            Button(
-                onClick = onSend,
-                enabled = !state.isSending,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-            ) {
-                Text(
-                    if (state.isSending) {
-                        stringResource(R.string.send_progress)
-                    } else {
-                        stringResource(R.string.send)
-                    },
-                )
-            }
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                shape = MaterialTheme.shapes.medium,
-            ) {
-                Text(
-                    text = "状态：${state.status}",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-
-            HistorySection(
-                history = state.sendHistory,
-                onUseHistoryItem = onUseHistoryItem,
-                onDeleteHistoryItem = onDeleteHistoryItem,
-                onRequestClearHistory = onRequestClearHistory,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 
@@ -223,41 +211,177 @@ fun TextBridgeScreen(
 }
 
 @Composable
-private fun DiscoveryChooserDialog(
-    offers: List<DiscoveryOffer>,
-    onSelectOffer: (DiscoveryOffer) -> Unit,
-    onDismiss: () -> Unit,
+private fun SendScreen(
+    state: TextBridgeUiState,
+    onBodyChange: (String) -> Unit,
+    onSend: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.select_computer)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (offer in offers) {
-                    TextButton(
-                        onClick = { onSelectOffer(offer) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = offer.label,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-    )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .imePadding(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        OutlinedTextField(
+            value = state.body,
+            onValueChange = onBodyChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 300.dp),
+            label = { Text(stringResource(R.string.text_to_send)) },
+            minLines = 10,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.None,
+            ),
+        )
+
+        Button(
+            onClick = onSend,
+            enabled = !state.isSending,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+        ) {
+            Text(
+                if (state.isSending) {
+                    stringResource(R.string.send_progress)
+                } else {
+                    stringResource(R.string.send)
+                },
+            )
+        }
+
+        StatusCard(status = state.status)
+
+        Spacer(modifier = Modifier.height(8.dp))
+    }
 }
 
 @Composable
-private fun HistorySection(
+private fun SettingsScreen(
+    state: TextBridgeUiState,
+    onAddressChange: (String) -> Unit,
+    onDiscoveryPortChange: (String) -> Unit,
+    onTokenChange: (String) -> Unit,
+    onScan: () -> Unit,
+    onSaveSettings: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .imePadding(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedTextField(
+                value = state.settingsAddress,
+                onValueChange = onAddressChange,
+                modifier = Modifier.weight(1f),
+                label = { Text(stringResource(R.string.computer_address)) },
+                placeholder = { Text("192.168.1.20:17321") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Next,
+                ),
+            )
+
+            FilledTonalButton(
+                onClick = onScan,
+                enabled = !state.isScanning,
+                modifier = Modifier
+                    .width(124.dp)
+                    .height(56.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                Text(
+                    if (state.isScanning) {
+                        stringResource(R.string.scan_computer_progress)
+                    } else {
+                        stringResource(R.string.scan_computer)
+                    },
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = state.settingsDiscoveryPort,
+            onValueChange = onDiscoveryPortChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.discovery_port)) },
+            placeholder = { Text(DEFAULT_DISCOVERY_PORT.toString()) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Next,
+            ),
+        )
+
+        OutlinedTextField(
+            value = state.settingsToken,
+            onValueChange = onTokenChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.access_token)) },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onSaveSettings,
+                enabled = state.hasUnsavedSettings,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
+            ) {
+                Text(stringResource(R.string.save_settings))
+            }
+
+            if (state.hasUnsavedSettings) {
+                Text(
+                    text = stringResource(R.string.unsaved_settings),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+        }
+
+        StatusCard(status = state.status)
+
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun HistoryScreen(
     history: List<SendHistoryItem>,
     onUseHistoryItem: (SendHistoryItem) -> Unit,
     onDeleteHistoryItem: (SendHistoryItem) -> Unit,
     onRequestClearHistory: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -297,7 +421,53 @@ private fun HistorySection(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
     }
+}
+
+@Composable
+private fun StatusCard(status: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Text(
+            text = "状态：$status",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun DiscoveryChooserDialog(
+    offers: List<DiscoveryOffer>,
+    onSelectOffer: (DiscoveryOffer) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.select_computer)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (offer in offers) {
+                    TextButton(
+                        onClick = { onSelectOffer(offer) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = offer.label,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+    )
 }
 
 @Composable

@@ -17,9 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class TextBridgeViewModel(
-    private val settingsStore: SettingsStore,
-    private val discoveryClient: DiscoveryClient = DiscoveryClient(),
-    private val commitClient: CommitClient = CommitClient(),
+    private val settingsStore: TextBridgeSettingsRepository,
+    private val discoveryClient: TextBridgeDiscoveryClient = DiscoveryClient(),
+    private val commitClient: TextBridgeCommitClient = CommitClient(),
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TextBridgeUiState())
     val uiState: StateFlow<TextBridgeUiState> = _uiState.asStateFlow()
@@ -32,37 +32,68 @@ class TextBridgeViewModel(
                     address = settings.address,
                     discoveryPort = settings.discoveryPort.toString(),
                     token = settings.token,
+                    settingsAddress = settings.address,
+                    settingsDiscoveryPort = settings.discoveryPort.toString(),
+                    settingsToken = settings.token,
+                    hasUnsavedSettings = false,
                     sendHistory = settings.sendHistory,
                 )
             }
         }
     }
 
-    fun onAddressChange(value: String) {
-        _uiState.update { it.copy(address = value) }
+    fun onSettingsAddressChange(value: String) {
+        _uiState.update { it.withSettingsDraft(address = value) }
     }
 
-    fun onDiscoveryPortChange(value: String) {
-        _uiState.update { it.copy(discoveryPort = value.filter(Char::isDigit).take(5)) }
+    fun onSettingsDiscoveryPortChange(value: String) {
+        _uiState.update { it.withSettingsDraft(discoveryPort = value.filter(Char::isDigit).take(5)) }
     }
 
-    fun onTokenChange(value: String) {
-        _uiState.update { it.copy(token = value) }
+    fun onSettingsTokenChange(value: String) {
+        _uiState.update { it.withSettingsDraft(token = value) }
     }
 
     fun onBodyChange(value: String) {
         _uiState.update { it.copy(body = value) }
     }
 
+    fun saveSettings() {
+        val state = uiState.value
+        val port = parsePort(state.settingsDiscoveryPort)
+        if (port == null) {
+            _uiState.update { it.copy(status = "发现端口无效") }
+            return
+        }
+
+        val address = state.settingsAddress.trim()
+        val token = state.settingsToken
+
+        viewModelScope.launch {
+            settingsStore.saveConnectionSettings(address, port, token)
+            _uiState.update {
+                it.copy(
+                    address = address,
+                    discoveryPort = port.toString(),
+                    token = token,
+                    settingsAddress = address,
+                    settingsDiscoveryPort = port.toString(),
+                    settingsToken = token,
+                    hasUnsavedSettings = false,
+                    status = "配置已保存",
+                )
+            }
+        }
+    }
+
     fun scanForComputers() {
-        val port = parsePort(uiState.value.discoveryPort)
+        val port = parsePort(uiState.value.settingsDiscoveryPort)
         if (port == null) {
             _uiState.update { it.copy(status = "发现端口无效") }
             return
         }
 
         viewModelScope.launch {
-            settingsStore.saveDiscoveryPort(port)
             _uiState.update {
                 it.copy(
                     isScanning = true,
@@ -104,9 +135,7 @@ class TextBridgeViewModel(
     }
 
     fun selectDiscoveryOffer(offer: DiscoveryOffer) {
-        viewModelScope.launch {
-            applyDiscoveryOffer(offer)
-        }
+        applyDiscoveryOffer(offer)
     }
 
     fun dismissDiscoveryChooser() {
@@ -135,7 +164,6 @@ class TextBridgeViewModel(
         }
 
         viewModelScope.launch {
-            settingsStore.saveAddressAndToken(address, token)
             _uiState.update { it.copy(isSending = true, status = "发送中...") }
 
             val result = withContext(Dispatchers.IO) {
@@ -217,13 +245,11 @@ class TextBridgeViewModel(
         }
     }
 
-    private suspend fun applyDiscoveryOffer(offer: DiscoveryOffer) {
-        settingsStore.saveAddress(offer.address)
+    private fun applyDiscoveryOffer(offer: DiscoveryOffer) {
         _uiState.update {
-            it.copy(
-                address = offer.address,
+            it.withSettingsDraft(address = offer.address).copy(
                 isScanning = false,
-                status = "已选择 ${offer.label}",
+                status = "已填入 ${offer.label}，保存后生效",
                 discoveryChoices = emptyList(),
             )
         }
@@ -232,6 +258,21 @@ class TextBridgeViewModel(
     private fun parsePort(value: String): Int? {
         val port = value.trim().toIntOrNull()
         return port?.takeIf { it in 1..65535 }
+    }
+
+    private fun TextBridgeUiState.withSettingsDraft(
+        address: String = settingsAddress,
+        discoveryPort: String = settingsDiscoveryPort,
+        token: String = settingsToken,
+    ): TextBridgeUiState {
+        return copy(
+            settingsAddress = address,
+            settingsDiscoveryPort = discoveryPort,
+            settingsToken = token,
+            hasUnsavedSettings = address != this.address ||
+                discoveryPort != this.discoveryPort ||
+                token != this.token,
+        )
     }
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {
