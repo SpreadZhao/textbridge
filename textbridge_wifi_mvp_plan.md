@@ -1,5 +1,7 @@
 # TextBridge Wi‑Fi MVP 实现方案
 
+> 历史设计记录：本文档描述的是 TextBridge 的早期 MVP 方案。当前项目已经进入功能迭代阶段，现行安装、配置和发现机制以 `README.md` 与 `textbridge/README.md` 为准。
+
 **目标环境：** Linux + Fcitx5 + Rime（雾凇拼音）+ Android  
 **版本：** MVP v0.1  
 **日期：** 2026-06-20
