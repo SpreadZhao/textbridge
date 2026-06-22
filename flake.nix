@@ -170,6 +170,10 @@
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
+          textbridgePython = pkgs.python3.withPackages (ps: with ps; [
+            dbus-python
+            pygobject3
+          ]);
         in
         {
           textbridge-server = pkgs.stdenvNoCC.mkDerivation {
@@ -180,12 +184,13 @@
             dontBuild = true;
             doCheck = true;
             nativeBuildInputs = [
-              pkgs.python3
+              textbridgePython
             ];
 
             checkPhase = ''
               runHook preCheck
               python3 test_textbridge_server.py
+              python3 test_textbridge_bluetooth_server.py
               runHook postCheck
             '';
 
@@ -198,15 +203,23 @@
               mkdir -p $out/share/doc/textbridge
 
               cp textbridge_server.py $out/lib/textbridge/textbridge_server.py
+              cp textbridge_bluetooth_server.py $out/lib/textbridge/textbridge_bluetooth_server.py
               cp config.example.json $out/share/doc/textbridge/config.example.json
               cp textbridge-server.service $out/share/systemd/user/textbridge-server.service
+              cp textbridge-bluetooth-server.service $out/share/systemd/user/textbridge-bluetooth-server.service
 
               patchShebangs $out/lib/textbridge/textbridge_server.py
+              patchShebangs $out/lib/textbridge/textbridge_bluetooth_server.py
               chmod +x $out/lib/textbridge/textbridge_server.py
+              chmod +x $out/lib/textbridge/textbridge_bluetooth_server.py
               ln -s $out/lib/textbridge/textbridge_server.py $out/bin/textbridge-server
+              ln -s $out/lib/textbridge/textbridge_bluetooth_server.py $out/bin/textbridge-bluetooth-server
               substituteInPlace $out/share/systemd/user/textbridge-server.service \
                 --replace-fail "%h/.local/lib/textbridge/textbridge_server.py" \
                 "$out/bin/textbridge-server"
+              substituteInPlace $out/share/systemd/user/textbridge-bluetooth-server.service \
+                --replace-fail "%h/.local/lib/textbridge/textbridge_bluetooth_server.py" \
+                "$out/bin/textbridge-bluetooth-server"
 
               runHook postInstall
             '';
@@ -294,6 +307,13 @@
             description = "Create an adb reverse tunnel for TextBridge USB/ADB mode";
           };
         };
+        textbridge-bluetooth-server = {
+          type = "app";
+          program = "${self.packages.${system}.textbridge-server}/bin/textbridge-bluetooth-server";
+          meta = {
+            description = "Run the TextBridge Bluetooth RFCOMM server";
+          };
+        };
       });
 
       nixosModules =
@@ -301,6 +321,7 @@
           serverModule = { config, lib, pkgs, ... }:
           let
             cfg = config.services.textbridge.server;
+            bluetoothCfg = config.services.textbridge.bluetooth;
             system = pkgs.stdenv.hostPlatform.system;
             serverConfig = pkgs.writeText "textbridge-server.json" (builtins.toJSON ({
               listen_host = cfg.listenHost;
@@ -419,43 +440,82 @@
               };
             };
 
-            config = lib.mkIf cfg.enable {
-              assertions = [
-                {
-                  assertion = cfg.tokenFile != null;
-                  message = ''
-                    services.textbridge.server.tokenFile must be set.
-                    Generate a token with:
-                      python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
-                    Then provide it through sops-nix, for example:
-                      services.textbridge.server.tokenFile = config.sops.secrets."textbridge-token".path;
-                  '';
-                }
-                {
-                  assertion = cfg.tokenFile == null || !(lib.hasPrefix "/nix/store/" cfg.tokenFile);
-                  message = "services.textbridge.server.tokenFile must not point into the Nix store.";
-                }
-              ];
+            options.services.textbridge.bluetooth = {
+              enable = lib.mkEnableOption "TextBridge Bluetooth RFCOMM server";
 
-              environment.systemPackages = [ cfg.package ] ++ lib.optional cfg.adbHelper.enable cfg.adbHelper.package;
-
-              networking.firewall = lib.mkIf cfg.openFirewall {
-                allowedTCPPorts = [ cfg.port ];
-                allowedUDPPorts = lib.mkIf cfg.discovery.enable [ cfg.discovery.port ];
+              package = lib.mkOption {
+                type = lib.types.package;
+                default = self.packages.${system}.textbridge-server;
+                defaultText = lib.literalExpression "inputs.textbridge.packages.\${pkgs.system}.textbridge-server";
+                description = "Package providing the TextBridge Bluetooth server.";
               };
 
-              systemd.user.services.textbridge-server = lib.mkIf cfg.enableUserService {
-                description = "TextBridge Wi-Fi server";
-                after = [ "network-online.target" ];
-                wantedBy = [ "default.target" ];
-                serviceConfig = {
-                  Type = "simple";
-                  ExecStart = "${cfg.package}/bin/textbridge-server --config ${serverConfig}";
-                  Restart = "on-failure";
-                  RestartSec = 2;
-                };
+              enableUserService = lib.mkOption {
+                type = lib.types.bool;
+                default = true;
+                description = "Whether to install and enable the TextBridge Bluetooth user service.";
               };
             };
+
+            config = lib.mkMerge [
+              (lib.mkIf (cfg.enable || bluetoothCfg.enable) {
+                assertions = [
+                  {
+                    assertion = cfg.tokenFile != null;
+                    message = ''
+                      services.textbridge.server.tokenFile must be set.
+                      Generate a token with:
+                        python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+                      Then provide it through sops-nix, for example:
+                        services.textbridge.server.tokenFile = config.sops.secrets."textbridge-token".path;
+                    '';
+                  }
+                  {
+                    assertion = cfg.tokenFile == null || !(lib.hasPrefix "/nix/store/" cfg.tokenFile);
+                    message = "services.textbridge.server.tokenFile must not point into the Nix store.";
+                  }
+                ];
+
+                environment.systemPackages =
+                  lib.optionals cfg.enable ([ cfg.package ] ++ lib.optional cfg.adbHelper.enable cfg.adbHelper.package)
+                  ++ lib.optional bluetoothCfg.enable bluetoothCfg.package;
+              })
+
+              (lib.mkIf cfg.enable {
+                networking.firewall = lib.mkIf cfg.openFirewall {
+                  allowedTCPPorts = [ cfg.port ];
+                  allowedUDPPorts = lib.mkIf cfg.discovery.enable [ cfg.discovery.port ];
+                };
+
+                systemd.user.services.textbridge-server = lib.mkIf cfg.enableUserService {
+                  description = "TextBridge Wi-Fi server";
+                  after = [ "network-online.target" ];
+                  wantedBy = [ "default.target" ];
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStart = "${cfg.package}/bin/textbridge-server --config ${serverConfig}";
+                    Restart = "on-failure";
+                    RestartSec = 2;
+                  };
+                };
+              })
+
+              (lib.mkIf bluetoothCfg.enable {
+                hardware.bluetooth.enable = lib.mkDefault true;
+
+                systemd.user.services.textbridge-bluetooth-server = lib.mkIf bluetoothCfg.enableUserService {
+                  description = "TextBridge Bluetooth server";
+                  after = [ "bluetooth.target" ];
+                  wantedBy = [ "default.target" ];
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStart = "${bluetoothCfg.package}/bin/textbridge-bluetooth-server --config ${serverConfig}";
+                    Restart = "on-failure";
+                    RestartSec = 2;
+                  };
+                };
+              })
+            ];
           };
         in
         {

@@ -1,0 +1,12 @@
+[Unit]
+Description=TextBridge Bluetooth server
+After=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/textbridge/textbridge_bluetooth_server.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

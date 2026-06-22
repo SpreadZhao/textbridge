@@ -7,12 +7,17 @@
     <string name="transport_mode">发送方式</string>
     <string name="transport_lan">局域网</string>
     <string name="transport_adb">USB/ADB</string>
+    <string name="transport_bluetooth">蓝牙</string>
     <string name="computer_address">电脑地址</string>
     <string name="scan_computer">扫描电脑</string>
     <string name="scan_computer_progress">扫描中...</string>
     <string name="select_computer">选择电脑</string>
     <string name="discovery_port">发现端口</string>
     <string name="adb_port">服务端口</string>
+    <string name="bluetooth_permission">授权蓝牙</string>
+    <string name="bluetooth_select_device">选择蓝牙电脑</string>
+    <string name="bluetooth_no_paired_devices">无已配对设备</string>
+    <string name="refresh">刷新</string>
     <string name="access_token">访问令牌</string>
     <string name="save_settings">保存配置</string>
     <string name="unsaved_settings">配置未保存</string>

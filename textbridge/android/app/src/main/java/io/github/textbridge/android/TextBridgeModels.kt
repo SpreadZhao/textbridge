@@ -7,7 +7,8 @@ const val MAX_SEND_HISTORY_ITEMS = 50
 
 enum class TransportMode(val storageValue: String) {
     LAN("lan"),
-    ADB("adb");
+    ADB("adb"),
+    BLUETOOTH("bluetooth");
 
     companion object {
         fun fromStorage(value: String?): TransportMode {
@@ -60,6 +61,8 @@ data class TextBridgeSettings(
     val lanAddress: String = "",
     val discoveryPort: Int = DEFAULT_DISCOVERY_PORT,
     val adbPort: Int = DEFAULT_COMMIT_PORT,
+    val bluetoothDeviceAddress: String = "",
+    val bluetoothDeviceName: String = "",
     val token: String = "",
     val sendMode: SendMode = SendMode.SEND_ONLY,
     val sendHistory: List<SendHistoryItem> = emptyList(),
@@ -70,11 +73,15 @@ data class TextBridgeUiState(
     val lanAddress: String = "",
     val discoveryPort: String = DEFAULT_DISCOVERY_PORT.toString(),
     val adbPort: String = DEFAULT_COMMIT_PORT.toString(),
+    val bluetoothDeviceAddress: String = "",
+    val bluetoothDeviceName: String = "",
     val token: String = "",
     val settingsTransportMode: TransportMode = TransportMode.LAN,
     val settingsLanAddress: String = "",
     val settingsDiscoveryPort: String = DEFAULT_DISCOVERY_PORT.toString(),
     val settingsAdbPort: String = DEFAULT_COMMIT_PORT.toString(),
+    val settingsBluetoothDeviceAddress: String = "",
+    val settingsBluetoothDeviceName: String = "",
     val settingsToken: String = "",
     val hasUnsavedSettings: Boolean = false,
     val sendMode: SendMode = SendMode.SEND_ONLY,
@@ -82,6 +89,8 @@ data class TextBridgeUiState(
     val status: String = "待发送",
     val isScanning: Boolean = false,
     val isSending: Boolean = false,
+    val bluetoothPermissionGranted: Boolean = false,
+    val bluetoothDevices: List<BluetoothDeviceChoice> = emptyList(),
     val selectedKeyModifiers: Set<KeyModifier> = emptySet(),
     val discoveryChoices: List<DiscoveryOffer> = emptyList(),
     val sendHistory: List<SendHistoryItem> = emptyList(),
@@ -106,6 +115,14 @@ data class SendResult(
     val ok: Boolean,
     val message: String,
 )
+
+data class BluetoothDeviceChoice(
+    val name: String,
+    val address: String,
+) {
+    val label: String
+        get() = if (name.isBlank()) address else "$name $address"
+}
 
 data class SendHistoryItem(
     val id: String,

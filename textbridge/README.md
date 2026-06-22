@@ -1,6 +1,6 @@
 # TextBridge
 
-TextBridge 把 Android 手机上输入的最终文本，经局域网 HTTP POST 转发到 Linux 桌面，并由 Fcitx5 插件调用 `InputContext::commitString()` 提交到当前获得焦点的输入框。Rime 和雾凇拼音不需要修改。
+TextBridge 把 Android 手机上输入的最终文本，经局域网 HTTP、USB/ADB reverse 或 Bluetooth RFCOMM 转发到 Linux 桌面，并由 Fcitx5 插件调用 `InputContext::commitString()` 提交到当前获得焦点的输入框。Rime 和雾凇拼音不需要修改。
 
 ## 工程结构
 
@@ -9,6 +9,7 @@ textbridge/
 ├── android/                 # Kotlin + Jetpack Compose Android App
 ├── desktop/
 │   ├── server/              # Python 标准库 HTTP 服务
+│   │                         # Python BlueZ/RFCOMM 蓝牙服务
 │   └── fcitx5-addon/        # C++ Fcitx5 Module Addon
 └── tools/
     ├── textbridge-adb-connect # 建立 adb reverse 端口转发
@@ -147,6 +148,9 @@ nix build path:.#textbridge-server
     adbHelper.enable = true;
     discovery.port = 17322;
   };
+
+  # 可选：启用蓝牙 RFCOMM 接收端。
+  services.textbridge.bluetooth.enable = true;
 }
 ```
 
@@ -189,6 +193,7 @@ App 使用 Compose 和 Navigation 3，包含发送、历史、配置三个页面
 
 - `局域网`：填写电脑地址，或用“扫描电脑”通过 UDP discovery 自动发现；发现端口需要和 `services.textbridge.server.discovery.port` 一致。
 - `USB/ADB`：填写 TextBridge server 的 TCP 端口；App 会发送到手机本机的 `127.0.0.1:<port>`，由电脑侧 `adb reverse` 转发到桌面 server。
+- `蓝牙`：先在系统蓝牙里和电脑配对，再在 App 中授权蓝牙并选择已配对电脑；蓝牙模式不使用局域网扫描。
 
 地址、发现端口、ADB 端口、发送方式、令牌和最近 50 条成功发送历史保存在 DataStore；只有服务端返回 `status=ok` 时才清空正文并写入历史，失败会保留正文且不记录历史。
 
@@ -226,6 +231,41 @@ textbridge-adb-connect --remove --port 17321
 ```
 
 UDP discovery 只用于局域网模式，不会经过 `adb reverse`。
+
+## 蓝牙模式
+
+蓝牙模式适合手机和电脑没有共同局域网、也不想使用 USB 连接的场景。它使用 Bluetooth Classic RFCOMM：Android 端作为客户端，Linux/BlueZ 端注册 TextBridge profile 并接收一条 JSON 请求，再转发到同一个 Fcitx5 插件 Unix socket。
+
+1. 启用并启动桌面端蓝牙服务：
+
+```nix
+services.textbridge.server = {
+  tokenFile = config.sops.secrets."textbridge-token".path;
+};
+
+services.textbridge.bluetooth.enable = true;
+```
+
+或直接运行：
+
+```sh
+nix run path:.#textbridge-bluetooth-server
+```
+
+2. 在电脑上临时开启可配对/可发现，然后用手机系统蓝牙设置完成配对：
+
+```sh
+bluetoothctl
+power on
+agent on
+default-agent
+pairable on
+discoverable on
+```
+
+3. Android 配置页选择 `蓝牙`，授权蓝牙权限，选择已配对电脑，填写同一个访问令牌并保存。
+
+蓝牙服务使用固定 UUID `6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42`。配对提供链路层保护，TextBridge 仍会校验访问令牌；不要把令牌交给不受信任设备。
 
 ## 安全边界
 

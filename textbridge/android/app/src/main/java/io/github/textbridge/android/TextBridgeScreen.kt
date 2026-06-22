@@ -88,7 +88,10 @@ fun TextBridgeApp(
     onSettingsLanAddressChange: (String) -> Unit,
     onSettingsDiscoveryPortChange: (String) -> Unit,
     onSettingsAdbPortChange: (String) -> Unit,
+    onSettingsBluetoothDeviceChange: (String) -> Unit,
     onSettingsTokenChange: (String) -> Unit,
+    onRequestBluetoothPermission: () -> Unit,
+    onRefreshBluetoothDevices: () -> Unit,
     onSaveSettings: () -> Unit,
     onBodyChange: (String) -> Unit,
     onScan: () -> Unit,
@@ -191,7 +194,10 @@ fun TextBridgeApp(
                             onLanAddressChange = onSettingsLanAddressChange,
                             onDiscoveryPortChange = onSettingsDiscoveryPortChange,
                             onAdbPortChange = onSettingsAdbPortChange,
+                            onBluetoothDeviceChange = onSettingsBluetoothDeviceChange,
                             onTokenChange = onSettingsTokenChange,
+                            onRequestBluetoothPermission = onRequestBluetoothPermission,
+                            onRefreshBluetoothDevices = onRefreshBluetoothDevices,
                             onScan = onScan,
                             onSaveSettings = onSaveSettings,
                         )
@@ -412,7 +418,10 @@ private fun SettingsScreen(
     onLanAddressChange: (String) -> Unit,
     onDiscoveryPortChange: (String) -> Unit,
     onAdbPortChange: (String) -> Unit,
+    onBluetoothDeviceChange: (String) -> Unit,
     onTokenChange: (String) -> Unit,
+    onRequestBluetoothPermission: () -> Unit,
+    onRefreshBluetoothDevices: () -> Unit,
     onScan: () -> Unit,
     onSaveSettings: () -> Unit,
 ) {
@@ -493,6 +502,14 @@ private fun SettingsScreen(
                     ),
                 )
             }
+            TransportMode.BLUETOOTH -> {
+                BluetoothDeviceSelector(
+                    state = state,
+                    onBluetoothDeviceChange = onBluetoothDeviceChange,
+                    onRequestBluetoothPermission = onRequestBluetoothPermission,
+                    onRefreshBluetoothDevices = onRefreshBluetoothDevices,
+                )
+            }
         }
 
         OutlinedTextField(
@@ -543,7 +560,7 @@ private fun TransportModeSelector(
     selectedMode: TransportMode,
     onTransportModeChange: (TransportMode) -> Unit,
 ) {
-    val modes = listOf(TransportMode.LAN, TransportMode.ADB)
+    val modes = listOf(TransportMode.LAN, TransportMode.ADB, TransportMode.BLUETOOTH)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -561,6 +578,95 @@ private fun TransportModeSelector(
                     Text(stringResource(mode.labelRes()))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BluetoothDeviceSelector(
+    state: TextBridgeUiState,
+    onBluetoothDeviceChange: (String) -> Unit,
+    onRequestBluetoothPermission: () -> Unit,
+    onRefreshBluetoothDevices: () -> Unit,
+) {
+    if (!state.bluetoothPermissionGranted) {
+        Button(
+            onClick = onRequestBluetoothPermission,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+        ) {
+            Text(stringResource(R.string.bluetooth_permission))
+        }
+        return
+    }
+
+    var expanded by remember { mutableStateOf(false) }
+    val selectedDevice = state.bluetoothDevices.firstOrNull {
+        it.address == state.settingsBluetoothDeviceAddress
+    }
+    val selectedLabel = when {
+        selectedDevice != null -> selectedDevice.label
+        state.settingsBluetoothDeviceName.isNotBlank() && state.settingsBluetoothDeviceAddress.isNotBlank() ->
+            "${state.settingsBluetoothDeviceName} ${state.settingsBluetoothDeviceAddress}"
+        state.settingsBluetoothDeviceAddress.isNotBlank() -> state.settingsBluetoothDeviceAddress
+        state.bluetoothDevices.isEmpty() -> stringResource(R.string.bluetooth_no_paired_devices)
+        else -> stringResource(R.string.bluetooth_select_device)
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.weight(1f)) {
+            FilledTonalButton(
+                onClick = { expanded = state.bluetoothDevices.isNotEmpty() },
+                enabled = state.bluetoothDevices.isNotEmpty(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
+                Text(
+                    text = selectedLabel,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                state.bluetoothDevices.forEach { device ->
+                    DropdownMenuItem(
+                        text = { Text(device.label) },
+                        onClick = {
+                            expanded = false
+                            onBluetoothDeviceChange(device.address)
+                        },
+                    )
+                }
+            }
+        }
+
+        FilledTonalButton(
+            onClick = onRefreshBluetoothDevices,
+            modifier = Modifier
+                .width(96.dp)
+                .height(56.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.refresh),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -725,6 +831,7 @@ private fun TransportMode.labelRes(): Int {
     return when (this) {
         TransportMode.LAN -> R.string.transport_lan
         TransportMode.ADB -> R.string.transport_adb
+        TransportMode.BLUETOOTH -> R.string.transport_bluetooth
     }
 }
 

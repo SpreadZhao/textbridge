@@ -18,9 +18,20 @@ interface TextBridgeCommitClient {
         key: RemoteKey,
         modifiers: List<KeyModifier>,
     ): SendResult
+
+    fun postBluetoothCommit(deviceAddress: String, token: String, requestId: String, text: String): SendResult
+    fun postBluetoothKey(
+        deviceAddress: String,
+        token: String,
+        requestId: String,
+        key: RemoteKey,
+        modifiers: List<KeyModifier>,
+    ): SendResult
 }
 
-class CommitClient : TextBridgeCommitClient {
+class CommitClient(
+    private val bluetoothClient: TextBridgeBluetoothCommitClient = UnavailableBluetoothCommitClient,
+) : TextBridgeCommitClient {
     override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
         return postJson(
             url = CommitProtocol.normalizeCommitUrl(address),
@@ -42,6 +53,36 @@ class CommitClient : TextBridgeCommitClient {
             token = token,
             body = CommitProtocol.keyRequestBody(requestId, key, modifiers),
             successMessage = "按键已发送",
+        )
+    }
+
+    override fun postBluetoothCommit(
+        deviceAddress: String,
+        token: String,
+        requestId: String,
+        text: String,
+    ): SendResult {
+        return bluetoothClient.postCommit(
+            deviceAddress = deviceAddress,
+            token = token,
+            requestId = requestId,
+            text = text,
+        )
+    }
+
+    override fun postBluetoothKey(
+        deviceAddress: String,
+        token: String,
+        requestId: String,
+        key: RemoteKey,
+        modifiers: List<KeyModifier>,
+    ): SendResult {
+        return bluetoothClient.postKey(
+            deviceAddress = deviceAddress,
+            token = token,
+            requestId = requestId,
+            key = key,
+            modifiers = modifiers,
         )
     }
 

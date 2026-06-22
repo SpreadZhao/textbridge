@@ -32,6 +32,8 @@ interface TextBridgeSettingsRepository {
         lanAddress: String,
         discoveryPort: Int,
         adbPort: Int,
+        bluetoothDeviceAddress: String,
+        bluetoothDeviceName: String,
         token: String,
     )
 
@@ -58,6 +60,8 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
                 lanAddress = preferences[Keys.address].orEmpty(),
                 discoveryPort = preferences[Keys.discoveryPort] ?: DEFAULT_DISCOVERY_PORT,
                 adbPort = preferences[Keys.adbPort] ?: DEFAULT_COMMIT_PORT,
+                bluetoothDeviceAddress = preferences[Keys.bluetoothDeviceAddress].orEmpty(),
+                bluetoothDeviceName = preferences[Keys.bluetoothDeviceName].orEmpty(),
                 token = preferences[Keys.token].orEmpty(),
                 sendMode = SendMode.fromStorage(preferences[Keys.sendMode]),
                 sendHistory = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson]),
@@ -69,6 +73,8 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         lanAddress: String,
         discoveryPort: Int,
         adbPort: Int,
+        bluetoothDeviceAddress: String,
+        bluetoothDeviceName: String,
         token: String,
     ) {
         appContext.textBridgeDataStore.edit { preferences ->
@@ -76,6 +82,8 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
             preferences[Keys.address] = lanAddress
             preferences[Keys.discoveryPort] = discoveryPort
             preferences[Keys.adbPort] = adbPort
+            preferences[Keys.bluetoothDeviceAddress] = bluetoothDeviceAddress
+            preferences[Keys.bluetoothDeviceName] = bluetoothDeviceName
             preferences[Keys.token] = token
         }
     }
@@ -117,6 +125,8 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         val address = stringPreferencesKey("address")
         val discoveryPort = intPreferencesKey("discovery_port")
         val adbPort = intPreferencesKey("adb_port")
+        val bluetoothDeviceAddress = stringPreferencesKey("bluetooth_device_address")
+        val bluetoothDeviceName = stringPreferencesKey("bluetooth_device_name")
         val token = stringPreferencesKey("token")
         val sendMode = stringPreferencesKey("send_mode")
         val sendHistoryJson = stringPreferencesKey("send_history_json")

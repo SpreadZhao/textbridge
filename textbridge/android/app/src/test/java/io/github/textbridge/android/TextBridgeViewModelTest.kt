@@ -101,6 +101,21 @@ class TextBridgeViewModelTest {
     }
 
     @Test
+    fun saveSettingsRejectsMissingBluetoothDevice() = runTest {
+        val settingsStore = FakeSettingsRepository(TextBridgeSettings())
+        val viewModel = newViewModel(settingsStore)
+        advanceUntilIdle()
+
+        viewModel.onSettingsTransportModeChange(TransportMode.BLUETOOTH)
+        viewModel.saveSettings()
+        advanceUntilIdle()
+
+        assertEquals(TransportMode.LAN, viewModel.uiState.value.transportMode)
+        assertEquals("请选择蓝牙电脑", viewModel.uiState.value.status)
+        assertEquals(0, settingsStore.saveConnectionSettingsCalls)
+    }
+
+    @Test
     fun sendModeDefaultsToSendOnly() = runTest {
         val viewModel = newViewModel(FakeSettingsRepository(TextBridgeSettings()))
         advanceUntilIdle()
@@ -172,6 +187,32 @@ class TextBridgeViewModelTest {
     }
 
     @Test
+    fun sendBluetoothModeUsesSavedDeviceAddress() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.BLUETOOTH,
+                    bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
+                    bluetoothDeviceName = "desktop",
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertEquals(listOf("AA:BB:CC:DD:EE:FF"), commitClient.bluetoothAddresses)
+        val historyItem = viewModel.uiState.value.sendHistory.first()
+        assertEquals("desktop AA:BB:CC:DD:EE:FF", historyItem.address)
+        assertEquals(TransportMode.BLUETOOTH, historyItem.transportMode)
+    }
+
+    @Test
     fun sendThenEnterUsesSameAdbEndpointAfterSuccessfulCommit() = runTest {
         val commitClient = FakeCommitClient()
         val viewModel = newViewModel(
@@ -196,6 +237,34 @@ class TextBridgeViewModelTest {
         assertTrue(commitClient.keyActions.first().modifiers.isEmpty())
         assertEquals("", viewModel.uiState.value.body)
         assertEquals("hello", viewModel.uiState.value.sendHistory.first().text)
+        assertEquals("已发送并按 Enter", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun sendThenEnterUsesSameBluetoothDeviceAfterSuccessfulCommit() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.BLUETOOTH,
+                    bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
+                    token = "token",
+                    sendMode = SendMode.SEND_THEN_ENTER,
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("bluetooth-commit:AA:BB:CC:DD:EE:FF", "bluetooth-key:AA:BB:CC:DD:EE:FF"),
+            commitClient.events,
+        )
+        assertEquals(RemoteKey.RETURN, commitClient.keyActions.first().key)
         assertEquals("已发送并按 Enter", viewModel.uiState.value.status)
     }
 
@@ -278,6 +347,32 @@ class TextBridgeViewModelTest {
         assertEquals(listOf("127.0.0.1:18000"), commitClient.keyAddresses)
         assertEquals(RemoteKey.RETURN, commitClient.keyActions.first().key)
         assertTrue(commitClient.keyActions.first().modifiers.isEmpty())
+        assertEquals("keep me", viewModel.uiState.value.body)
+        assertTrue(viewModel.uiState.value.sendHistory.isEmpty())
+        assertEquals("按键已发送", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun sendKeyBluetoothModeUsesSavedDeviceAddressAndDoesNotTouchTextHistory() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    transportMode = TransportMode.BLUETOOTH,
+                    bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        viewModel.onBodyChange("keep me")
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        advanceUntilIdle()
+
+        assertEquals(listOf("AA:BB:CC:DD:EE:FF"), commitClient.bluetoothKeyAddresses)
+        assertEquals(RemoteKey.RETURN, commitClient.keyActions.first().key)
         assertEquals("keep me", viewModel.uiState.value.body)
         assertTrue(viewModel.uiState.value.sendHistory.isEmpty())
         assertEquals("按键已发送", viewModel.uiState.value.status)
@@ -389,6 +484,8 @@ private class FakeSettingsRepository(
         lanAddress: String,
         discoveryPort: Int,
         adbPort: Int,
+        bluetoothDeviceAddress: String,
+        bluetoothDeviceName: String,
         token: String,
     ) {
         saveConnectionSettingsCalls += 1
@@ -397,6 +494,8 @@ private class FakeSettingsRepository(
             lanAddress = lanAddress,
             discoveryPort = discoveryPort,
             adbPort = adbPort,
+            bluetoothDeviceAddress = bluetoothDeviceAddress,
+            bluetoothDeviceName = bluetoothDeviceName,
             token = token,
         )
     }
@@ -430,6 +529,8 @@ private class FakeDiscoveryClient : TextBridgeDiscoveryClient {
 private class FakeCommitClient : TextBridgeCommitClient {
     val addresses = mutableListOf<String>()
     val keyAddresses = mutableListOf<String>()
+    val bluetoothAddresses = mutableListOf<String>()
+    val bluetoothKeyAddresses = mutableListOf<String>()
     val keyActions = mutableListOf<KeyAction>()
     val events = mutableListOf<String>()
     var commitResult = SendResult(ok = true, message = "已发送")
@@ -451,6 +552,30 @@ private class FakeCommitClient : TextBridgeCommitClient {
         keyAddresses += address
         keyActions += KeyAction(key = key, modifiers = modifiers)
         events += "key:$address"
+        return keyResult
+    }
+
+    override fun postBluetoothCommit(
+        deviceAddress: String,
+        token: String,
+        requestId: String,
+        text: String,
+    ): SendResult {
+        bluetoothAddresses += deviceAddress
+        events += "bluetooth-commit:$deviceAddress"
+        return commitResult
+    }
+
+    override fun postBluetoothKey(
+        deviceAddress: String,
+        token: String,
+        requestId: String,
+        key: RemoteKey,
+        modifiers: List<KeyModifier>,
+    ): SendResult {
+        bluetoothKeyAddresses += deviceAddress
+        keyActions += KeyAction(key = key, modifiers = modifiers)
+        events += "bluetooth-key:$deviceAddress"
         return keyResult
     }
 }

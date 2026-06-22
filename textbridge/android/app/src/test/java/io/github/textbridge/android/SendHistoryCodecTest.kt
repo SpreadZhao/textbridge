@@ -51,6 +51,19 @@ class SendHistoryCodecTest {
     }
 
     @Test
+    fun encodeDecodePreservesBluetoothMode() {
+        val item = SendHistoryItem(
+            id = "bluetooth",
+            text = "hello",
+            sentAtMillis = 1710000000000L,
+            address = "desktop AA:BB:CC:DD:EE:FF",
+            transportMode = TransportMode.BLUETOOTH,
+        )
+
+        assertEquals(listOf(item), SendHistoryCodec.decode(SendHistoryCodec.encode(listOf(item))))
+    }
+
+    @Test
     fun decodeSkipsInvalidItems() {
         val decoded = SendHistoryCodec.decode(
             """

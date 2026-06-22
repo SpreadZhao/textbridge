@@ -21,6 +21,7 @@ class TextBridgeViewModel(
     private val settingsStore: TextBridgeSettingsRepository,
     private val discoveryClient: TextBridgeDiscoveryClient = DiscoveryClient(),
     private val commitClient: TextBridgeCommitClient = CommitClient(),
+    private val bluetoothRepository: TextBridgeBluetoothDeviceRepository = EmptyBluetoothDeviceRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TextBridgeUiState())
@@ -35,11 +36,15 @@ class TextBridgeViewModel(
                     lanAddress = settings.lanAddress,
                     discoveryPort = settings.discoveryPort.toString(),
                     adbPort = settings.adbPort.toString(),
+                    bluetoothDeviceAddress = settings.bluetoothDeviceAddress,
+                    bluetoothDeviceName = settings.bluetoothDeviceName,
                     token = settings.token,
                     settingsTransportMode = settings.transportMode,
                     settingsLanAddress = settings.lanAddress,
                     settingsDiscoveryPort = settings.discoveryPort.toString(),
                     settingsAdbPort = settings.adbPort.toString(),
+                    settingsBluetoothDeviceAddress = settings.bluetoothDeviceAddress,
+                    settingsBluetoothDeviceName = settings.bluetoothDeviceName,
                     settingsToken = settings.token,
                     hasUnsavedSettings = false,
                     sendMode = settings.sendMode,
@@ -65,8 +70,42 @@ class TextBridgeViewModel(
         _uiState.update { it.withSettingsDraft(adbPort = value.filter(Char::isDigit).take(5)) }
     }
 
+    fun onSettingsBluetoothDeviceChange(address: String) {
+        val device = uiState.value.bluetoothDevices.firstOrNull { it.address == address }
+        _uiState.update {
+            it.withSettingsDraft(
+                bluetoothDeviceAddress = address,
+                bluetoothDeviceName = device?.name.orEmpty(),
+            )
+        }
+    }
+
     fun onSettingsTokenChange(value: String) {
         _uiState.update { it.withSettingsDraft(token = value) }
+    }
+
+    fun refreshBluetoothDevices(hasPermission: Boolean) {
+        viewModelScope.launch {
+            if (!hasPermission) {
+                _uiState.update {
+                    it.copy(
+                        bluetoothPermissionGranted = false,
+                        bluetoothDevices = emptyList(),
+                    )
+                }
+                return@launch
+            }
+
+            val devices = withContext(ioDispatcher) {
+                bluetoothRepository.pairedDevices()
+            }
+            _uiState.update {
+                it.copy(
+                    bluetoothPermissionGranted = true,
+                    bluetoothDevices = devices,
+                )
+            }
+        }
     }
 
     fun onBodyChange(value: String) {
@@ -106,7 +145,13 @@ class TextBridgeViewModel(
 
         val transportMode = state.settingsTransportMode
         val lanAddress = state.settingsLanAddress.trim()
+        val bluetoothDeviceAddress = state.settingsBluetoothDeviceAddress.trim()
+        val bluetoothDeviceName = state.settingsBluetoothDeviceName.trim()
         val token = state.settingsToken
+        if (transportMode == TransportMode.BLUETOOTH && bluetoothDeviceAddress.isBlank()) {
+            _uiState.update { it.copy(status = "请选择蓝牙电脑") }
+            return
+        }
 
         viewModelScope.launch {
             settingsStore.saveConnectionSettings(
@@ -114,6 +159,8 @@ class TextBridgeViewModel(
                 lanAddress = lanAddress,
                 discoveryPort = discoveryPort,
                 adbPort = adbPort,
+                bluetoothDeviceAddress = bluetoothDeviceAddress,
+                bluetoothDeviceName = bluetoothDeviceName,
                 token = token,
             )
             _uiState.update {
@@ -122,11 +169,15 @@ class TextBridgeViewModel(
                     lanAddress = lanAddress,
                     discoveryPort = discoveryPort.toString(),
                     adbPort = adbPort.toString(),
+                    bluetoothDeviceAddress = bluetoothDeviceAddress,
+                    bluetoothDeviceName = bluetoothDeviceName,
                     token = token,
                     settingsTransportMode = transportMode,
                     settingsLanAddress = lanAddress,
                     settingsDiscoveryPort = discoveryPort.toString(),
                     settingsAdbPort = adbPort.toString(),
+                    settingsBluetoothDeviceAddress = bluetoothDeviceAddress,
+                    settingsBluetoothDeviceName = bluetoothDeviceName,
                     settingsToken = token,
                     hasUnsavedSettings = false,
                     status = "配置已保存",
@@ -218,24 +269,43 @@ class TextBridgeViewModel(
             _uiState.update { it.copy(isSending = true, status = "发送中...") }
 
             val result = withContext(ioDispatcher) {
-                commitClient.postCommit(
-                    address = endpoint.address,
-                    token = token,
-                    requestId = UUID.randomUUID().toString(),
-                    text = text,
-                )
+                if (endpoint.transportMode == TransportMode.BLUETOOTH) {
+                    commitClient.postBluetoothCommit(
+                        deviceAddress = endpoint.address,
+                        token = token,
+                        requestId = UUID.randomUUID().toString(),
+                        text = text,
+                    )
+                } else {
+                    commitClient.postCommit(
+                        address = endpoint.address,
+                        token = token,
+                        requestId = UUID.randomUUID().toString(),
+                        text = text,
+                    )
+                }
             }
 
             if (result.ok) {
                 val enterResult = if (sendMode == SendMode.SEND_THEN_ENTER) {
                     withContext(ioDispatcher) {
-                        commitClient.postKey(
-                            address = endpoint.address,
-                            token = token,
-                            requestId = UUID.randomUUID().toString(),
-                            key = RemoteKey.RETURN,
-                            modifiers = emptyList(),
-                        )
+                        if (endpoint.transportMode == TransportMode.BLUETOOTH) {
+                            commitClient.postBluetoothKey(
+                                deviceAddress = endpoint.address,
+                                token = token,
+                                requestId = UUID.randomUUID().toString(),
+                                key = RemoteKey.RETURN,
+                                modifiers = emptyList(),
+                            )
+                        } else {
+                            commitClient.postKey(
+                                address = endpoint.address,
+                                token = token,
+                                requestId = UUID.randomUUID().toString(),
+                                key = RemoteKey.RETURN,
+                                modifiers = emptyList(),
+                            )
+                        }
                     }
                 } else {
                     null
@@ -245,7 +315,7 @@ class TextBridgeViewModel(
                         id = UUID.randomUUID().toString(),
                         text = text,
                         sentAtMillis = System.currentTimeMillis(),
-                        address = endpoint.address,
+                        address = endpoint.historyAddress,
                         transportMode = endpoint.transportMode,
                     ),
                 )
@@ -298,13 +368,23 @@ class TextBridgeViewModel(
             }
 
             val result = withContext(ioDispatcher) {
-                commitClient.postKey(
-                    address = endpoint.address,
-                    token = token,
-                    requestId = UUID.randomUUID().toString(),
-                    key = key,
-                    modifiers = modifiers,
-                )
+                if (endpoint.transportMode == TransportMode.BLUETOOTH) {
+                    commitClient.postBluetoothKey(
+                        deviceAddress = endpoint.address,
+                        token = token,
+                        requestId = UUID.randomUUID().toString(),
+                        key = key,
+                        modifiers = modifiers,
+                    )
+                } else {
+                    commitClient.postKey(
+                        address = endpoint.address,
+                        token = token,
+                        requestId = UUID.randomUUID().toString(),
+                        key = key,
+                        modifiers = modifiers,
+                    )
+                }
             }
 
             _uiState.update {
@@ -396,6 +476,20 @@ class TextBridgeViewModel(
                     ResolvedEndpoint("127.0.0.1:$port", TransportMode.ADB)
                 }
             }
+            TransportMode.BLUETOOTH -> {
+                val address = state.bluetoothDeviceAddress.trim()
+                if (address.isBlank()) {
+                    _uiState.update { it.copy(status = "请选择蓝牙电脑") }
+                    null
+                } else {
+                    val name = state.bluetoothDeviceName.trim()
+                    ResolvedEndpoint(
+                        address = address,
+                        transportMode = TransportMode.BLUETOOTH,
+                        historyAddress = if (name.isBlank()) address else "$name $address",
+                    )
+                }
+            }
         }
     }
 
@@ -404,6 +498,8 @@ class TextBridgeViewModel(
         lanAddress: String = settingsLanAddress,
         discoveryPort: String = settingsDiscoveryPort,
         adbPort: String = settingsAdbPort,
+        bluetoothDeviceAddress: String = settingsBluetoothDeviceAddress,
+        bluetoothDeviceName: String = settingsBluetoothDeviceName,
         token: String = settingsToken,
     ): TextBridgeUiState {
         return copy(
@@ -411,11 +507,15 @@ class TextBridgeViewModel(
             settingsLanAddress = lanAddress,
             settingsDiscoveryPort = discoveryPort,
             settingsAdbPort = adbPort,
+            settingsBluetoothDeviceAddress = bluetoothDeviceAddress,
+            settingsBluetoothDeviceName = bluetoothDeviceName,
             settingsToken = token,
             hasUnsavedSettings = transportMode != this.transportMode ||
                 lanAddress != this.lanAddress ||
                 discoveryPort != this.discoveryPort ||
                 adbPort != this.adbPort ||
+                bluetoothDeviceAddress != this.bluetoothDeviceAddress ||
+                bluetoothDeviceName != this.bluetoothDeviceName ||
                 token != this.token,
         )
     }
@@ -423,13 +523,19 @@ class TextBridgeViewModel(
     private data class ResolvedEndpoint(
         val address: String,
         val transportMode: TransportMode,
+        val historyAddress: String = address,
     )
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(TextBridgeViewModel::class.java)) {
-                return TextBridgeViewModel(SettingsStore(context.applicationContext)) as T
+                val appContext = context.applicationContext
+                return TextBridgeViewModel(
+                    settingsStore = SettingsStore(appContext),
+                    commitClient = CommitClient(BluetoothCommitClient(appContext)),
+                    bluetoothRepository = BluetoothDeviceRepository(appContext),
+                ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
