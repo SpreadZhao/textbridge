@@ -208,10 +208,10 @@
               cp textbridge-server.service $out/share/systemd/user/textbridge-server.service
               cp textbridge-bluetooth-server.service $out/share/systemd/user/textbridge-bluetooth-server.service
 
-              patchShebangs $out/lib/textbridge/textbridge_server.py
-              patchShebangs $out/lib/textbridge/textbridge_bluetooth_server.py
               chmod +x $out/lib/textbridge/textbridge_server.py
               chmod +x $out/lib/textbridge/textbridge_bluetooth_server.py
+              patchShebangs $out/lib/textbridge/textbridge_server.py
+              patchShebangs $out/lib/textbridge/textbridge_bluetooth_server.py
               ln -s $out/lib/textbridge/textbridge_server.py $out/bin/textbridge-server
               ln -s $out/lib/textbridge/textbridge_bluetooth_server.py $out/bin/textbridge-bluetooth-server
               substituteInPlace $out/share/systemd/user/textbridge-server.service \
