@@ -24,6 +24,7 @@ import textbridge_server
 
 
 TEXTBRIDGE_BLUETOOTH_UUID = "6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42"
+TEXTBRIDGE_BLUETOOTH_CHANNEL = 22
 PROFILE_PATH = "/io/github/textbridge/bluetooth/profile"
 BLUEZ_SERVICE = "org.bluez"
 BLUEZ_PROFILE_MANAGER_PATH = "/org/bluez"
@@ -237,13 +238,18 @@ def run(config: textbridge_server.ServerConfig) -> None:
             "Name": "TextBridge",
             "Service": TEXTBRIDGE_BLUETOOTH_UUID,
             "Role": "server",
+            "Channel": dbus.UInt16(TEXTBRIDGE_BLUETOOTH_CHANNEL),
             "RequireAuthentication": True,
             "RequireAuthorization": False,
         },
         signature="sv",
     )
     manager.RegisterProfile(PROFILE_PATH, TEXTBRIDGE_BLUETOOTH_UUID, options)
-    logging.info("bluetooth profile registered uuid=%s", TEXTBRIDGE_BLUETOOTH_UUID)
+    logging.info(
+        "bluetooth profile registered uuid=%s channel=%s",
+        TEXTBRIDGE_BLUETOOTH_UUID,
+        TEXTBRIDGE_BLUETOOTH_CHANNEL,
+    )
     try:
         loop.run()
     finally:
