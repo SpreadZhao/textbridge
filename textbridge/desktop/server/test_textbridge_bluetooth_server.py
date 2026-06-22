@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import socket
 import tempfile
@@ -35,6 +37,20 @@ class BluetoothProtocolTest(unittest.TestCase):
 
     def frame(self, payload: dict[str, object]) -> dict[str, object]:
         return textbridge_bluetooth_server.handle_frame(self.config, json.dumps(payload).encode("utf-8"))
+
+    def test_default_bluetooth_channel(self) -> None:
+        args = textbridge_bluetooth_server.parse_args([])
+
+        self.assertEqual(args.channel, 22)
+
+    def test_bluetooth_channel_argument(self) -> None:
+        args = textbridge_bluetooth_server.parse_args(["--channel", "7"])
+
+        self.assertEqual(args.channel, 7)
+
+    def test_bluetooth_channel_rejects_invalid_value(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            textbridge_bluetooth_server.parse_args(["--channel", "31"])
 
     def test_commit_success(self) -> None:
         request_id = str(uuid.uuid4())

@@ -243,7 +243,10 @@ services.textbridge.server = {
   tokenFile = config.sops.secrets."textbridge-token".path;
 };
 
-services.textbridge.bluetooth.enable = true;
+services.textbridge.bluetooth = {
+  enable = true;
+  channel = 22; # Bluetooth RFCOMM channel, not a TCP/UDP port.
+};
 ```
 
 或直接运行：
@@ -265,7 +268,7 @@ discoverable on
 
 3. Android 配置页选择 `蓝牙`，授权蓝牙权限，选择已配对电脑，填写同一个访问令牌并保存。
 
-蓝牙服务使用固定 UUID `6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42`。配对提供链路层保护，TextBridge 仍会校验访问令牌；不要把令牌交给不受信任设备。
+蓝牙服务使用固定 UUID `6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42`，默认 RFCOMM channel 是 `22`。这不是 TCP/UDP 端口，手机端会通过 UUID 查询 SDP 记录并自动使用该 channel；如需避让本机其它 RFCOMM 服务，可通过 `services.textbridge.bluetooth.channel` 改成 `1..30` 之间的值。配对提供链路层保护，TextBridge 仍会校验访问令牌；不要把令牌交给不受信任设备。
 
 ## 安全边界
 

@@ -455,6 +455,12 @@
                 default = true;
                 description = "Whether to install and enable the TextBridge Bluetooth user service.";
               };
+
+              channel = lib.mkOption {
+                type = lib.types.ints.between 1 30;
+                default = 22;
+                description = "Bluetooth Classic RFCOMM channel advertised for the TextBridge profile.";
+              };
             };
 
             config = lib.mkMerge [
@@ -509,7 +515,7 @@
                   wantedBy = [ "default.target" ];
                   serviceConfig = {
                     Type = "simple";
-                    ExecStart = "${bluetoothCfg.package}/bin/textbridge-bluetooth-server --config ${serverConfig}";
+                    ExecStart = "${bluetoothCfg.package}/bin/textbridge-bluetooth-server --config ${serverConfig} --channel ${toString bluetoothCfg.channel}";
                     Restart = "on-failure";
                     RestartSec = 2;
                   };

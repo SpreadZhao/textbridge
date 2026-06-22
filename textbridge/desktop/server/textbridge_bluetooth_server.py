@@ -24,7 +24,9 @@ import textbridge_server
 
 
 TEXTBRIDGE_BLUETOOTH_UUID = "6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42"
-TEXTBRIDGE_BLUETOOTH_CHANNEL = 22
+DEFAULT_TEXTBRIDGE_BLUETOOTH_CHANNEL = 22
+MIN_RFCOMM_CHANNEL = 1
+MAX_RFCOMM_CHANNEL = 30
 PROFILE_PATH = "/io/github/textbridge/bluetooth/profile"
 BLUEZ_SERVICE = "org.bluez"
 BLUEZ_PROFILE_MANAGER_PATH = "/org/bluez"
@@ -214,7 +216,23 @@ def build_bluez_profile_class(dbus_module: Any):
     return TextBridgeBluetoothProfile
 
 
-def run(config: textbridge_server.ServerConfig) -> None:
+def validate_rfcomm_channel(value: int) -> int:
+    if value < MIN_RFCOMM_CHANNEL or value > MAX_RFCOMM_CHANNEL:
+        raise ValueError(
+            f"Bluetooth RFCOMM channel must be between {MIN_RFCOMM_CHANNEL} and {MAX_RFCOMM_CHANNEL}"
+        )
+    return value
+
+
+def parse_rfcomm_channel(value: str) -> int:
+    try:
+        return validate_rfcomm_channel(int(value))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def run(config: textbridge_server.ServerConfig, channel: int = DEFAULT_TEXTBRIDGE_BLUETOOTH_CHANNEL) -> None:
+    channel = validate_rfcomm_channel(channel)
     try:
         import dbus
         import dbus.mainloop.glib
@@ -238,7 +256,7 @@ def run(config: textbridge_server.ServerConfig) -> None:
             "Name": "TextBridge",
             "Service": TEXTBRIDGE_BLUETOOTH_UUID,
             "Role": "server",
-            "Channel": dbus.UInt16(TEXTBRIDGE_BLUETOOTH_CHANNEL),
+            "Channel": dbus.UInt16(channel),
             "RequireAuthentication": True,
             "RequireAuthorization": False,
         },
@@ -248,7 +266,7 @@ def run(config: textbridge_server.ServerConfig) -> None:
     logging.info(
         "bluetooth profile registered uuid=%s channel=%s",
         TEXTBRIDGE_BLUETOOTH_UUID,
-        TEXTBRIDGE_BLUETOOTH_CHANNEL,
+        channel,
     )
     try:
         loop.run()
@@ -262,6 +280,12 @@ def run(config: textbridge_server.ServerConfig) -> None:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="TextBridge Bluetooth RFCOMM server")
     parser.add_argument("--config", type=Path, default=textbridge_server.default_config_path())
+    parser.add_argument(
+        "--channel",
+        type=parse_rfcomm_channel,
+        default=DEFAULT_TEXTBRIDGE_BLUETOOTH_CHANNEL,
+        help=f"Bluetooth RFCOMM channel to advertise in SDP ({MIN_RFCOMM_CHANNEL}-{MAX_RFCOMM_CHANNEL})",
+    )
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser.parse_args(argv)
 
@@ -272,7 +296,7 @@ def main(argv: list[str]) -> int:
 
     try:
         config = textbridge_server.load_config(args.config)
-        run(config)
+        run(config, channel=args.channel)
     except textbridge_server.ConfigError as exc:
         logging.error("configuration error: %s", exc)
         return 1
