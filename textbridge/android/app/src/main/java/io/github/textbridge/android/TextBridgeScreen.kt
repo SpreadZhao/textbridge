@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -46,14 +49,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -63,6 +72,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -95,7 +105,7 @@ fun TextBridgeApp(
     onSaveSettings: () -> Unit,
     onBodyChange: (String) -> Unit,
     onScan: () -> Unit,
-    onSend: () -> Unit,
+    onSend: () -> Boolean,
     onSendModeChange: (SendMode) -> Unit,
     onSendKeyAction: (RemoteKey, Set<KeyModifier>) -> Unit,
     onSelectOffer: (DiscoveryOffer) -> Unit,
@@ -157,7 +167,8 @@ fun TextBridgeApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .consumeWindowInsets(padding),
         ) {
             NavDisplay(
                 backStack = backStack,
@@ -238,31 +249,83 @@ fun TextBridgeApp(
 private fun SendScreen(
     state: TextBridgeUiState,
     onBodyChange: (String) -> Unit,
-    onSend: () -> Unit,
+    onSend: () -> Boolean,
     onSendModeChange: (SendMode) -> Unit,
     onSendKeyAction: (RemoteKey, Set<KeyModifier>) -> Unit,
 ) {
+    val bodyFieldState = rememberTextFieldState(initialText = state.body)
+    val bodyScrollState = rememberScrollState()
+    val currentOnBodyChange by rememberUpdatedState(onBodyChange)
+
+    LaunchedEffect(bodyFieldState) {
+        snapshotFlow { bodyFieldState.text.toString() }
+            .collect { currentOnBodyChange(it) }
+    }
+
+    LaunchedEffect(state.body) {
+        if (bodyFieldState.text.toString() != state.body) {
+            bodyFieldState.edit {
+                replace(0, length, state.body)
+                selection = TextRange(length)
+            }
+        }
+    }
+
+    LaunchedEffect(bodyFieldState, bodyScrollState) {
+        snapshotFlow {
+            Triple(
+                bodyFieldState.text.length,
+                bodyFieldState.selection,
+                bodyScrollState.maxValue,
+            )
+        }.collect { (textLength, selection, maxScroll) ->
+            val cursorIsAtEnd = selection.collapsed && selection.end == textLength
+            if (cursorIsAtEnd && bodyScrollState.value < maxScroll) {
+                bodyScrollState.scrollTo(maxScroll)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp)
-            .imePadding(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .imePadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
-        OutlinedTextField(
-            value = state.body,
-            onValueChange = onBodyChange,
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 200.dp),
-            label = { Text(stringResource(R.string.text_to_send)) },
-            minLines = 6,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Text,
-                imeAction = ImeAction.None,
-            ),
-        )
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            OutlinedTextField(
+                state = bodyFieldState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 200.dp),
+                label = { Text(stringResource(R.string.text_to_send)) },
+                lineLimits = TextFieldLineLimits.MultiLine(
+                    minHeightInLines = 6,
+                    maxHeightInLines = 10,
+                ),
+                scrollState = bodyScrollState,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.None,
+                ),
+            )
+
+            StatusCard(status = state.status)
+
+            KeyControlPanel(
+                isSending = state.isSending,
+                onSendKey = onSendKeyAction,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         SendActionRow(
             selectedMode = state.sendMode,
@@ -270,15 +333,6 @@ private fun SendScreen(
             onSendModeChange = onSendModeChange,
             onSend = onSend,
         )
-
-        StatusCard(status = state.status)
-
-        KeyControlPanel(
-            isSending = state.isSending,
-            onSendKey = onSendKeyAction,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -287,9 +341,11 @@ private fun SendActionRow(
     selectedMode: SendMode,
     isSending: Boolean,
     onSendModeChange: (SendMode) -> Unit,
-    onSend: () -> Unit,
+    onSend: () -> Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val modes = listOf(SendMode.SEND_ONLY, SendMode.SEND_THEN_ENTER)
 
     Row(
@@ -334,7 +390,13 @@ private fun SendActionRow(
         }
 
         Button(
-            onClick = onSend,
+            onClick = {
+                val sendStarted = onSend()
+                if (sendStarted && selectedMode == SendMode.SEND_ONLY) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
+            },
             enabled = !isSending,
             modifier = Modifier
                 .width(132.dp)

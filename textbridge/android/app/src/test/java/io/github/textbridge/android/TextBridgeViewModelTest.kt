@@ -153,12 +153,75 @@ class TextBridgeViewModelTest {
         advanceUntilIdle()
 
         viewModel.onBodyChange("hello")
-        viewModel.sendCurrentText()
+        val sendStarted = viewModel.sendCurrentText()
         advanceUntilIdle()
 
+        assertTrue(sendStarted)
         assertEquals(listOf("192.168.1.10:17321"), commitClient.addresses)
         assertTrue(commitClient.keyActions.isEmpty())
         assertEquals(TransportMode.LAN, viewModel.uiState.value.sendHistory.first().transportMode)
+    }
+
+    @Test
+    fun sendCurrentTextReturnsFalseWhenLanAddressIsMissing() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(token = "token"),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+        viewModel.onBodyChange("hello")
+
+        val sendStarted = viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertFalse(sendStarted)
+        assertEquals("请填写电脑地址", viewModel.uiState.value.status)
+        assertTrue(commitClient.events.isEmpty())
+    }
+
+    @Test
+    fun sendCurrentTextReturnsFalseWhenTokenIsMissing() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(lanAddress = "192.168.1.10:17321"),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+        viewModel.onBodyChange("hello")
+
+        val sendStarted = viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertFalse(sendStarted)
+        assertEquals("请填写访问令牌", viewModel.uiState.value.status)
+        assertTrue(commitClient.events.isEmpty())
+    }
+
+    @Test
+    fun sendCurrentTextReturnsFalseWhenBodyIsEmpty() = runTest {
+        val commitClient = FakeCommitClient()
+        val viewModel = newViewModel(
+            settingsRepository = FakeSettingsRepository(
+                TextBridgeSettings(
+                    lanAddress = "192.168.1.10:17321",
+                    token = "token",
+                ),
+            ),
+            commitClient = commitClient,
+        )
+        advanceUntilIdle()
+
+        val sendStarted = viewModel.sendCurrentText()
+        advanceUntilIdle()
+
+        assertFalse(sendStarted)
+        assertEquals("正文为空", viewModel.uiState.value.status)
+        assertTrue(commitClient.events.isEmpty())
     }
 
     @Test

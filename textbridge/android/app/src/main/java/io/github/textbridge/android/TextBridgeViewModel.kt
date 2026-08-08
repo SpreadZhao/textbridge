@@ -247,9 +247,9 @@ class TextBridgeViewModel(
         _uiState.update { it.copy(discoveryChoices = emptyList()) }
     }
 
-    fun sendCurrentText() {
+    fun sendCurrentText(): Boolean {
         val state = uiState.value
-        val endpoint = resolveEndpoint(state) ?: return
+        val endpoint = resolveEndpoint(state) ?: return false
         val token = state.token
         val text = state.body
         val sendMode = state.sendMode
@@ -257,11 +257,11 @@ class TextBridgeViewModel(
         when {
             token.isBlank() -> {
                 _uiState.update { it.copy(status = "请填写访问令牌") }
-                return
+                return false
             }
             text.isEmpty() -> {
                 _uiState.update { it.copy(status = "正文为空") }
-                return
+                return false
             }
         }
 
@@ -336,6 +336,7 @@ class TextBridgeViewModel(
                 }
             }
         }
+        return true
     }
 
     private fun sendSuccessMessage(commitResult: SendResult, enterResult: SendResult?): String {
