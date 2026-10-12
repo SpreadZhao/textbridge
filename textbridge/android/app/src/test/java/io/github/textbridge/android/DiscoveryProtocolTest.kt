@@ -17,8 +17,8 @@ class DiscoveryProtocolTest {
                 .put("name", "zephyrus-m16")
                 .put("host", "192.168.1.10")
                 .put("port", 17321)
-                .put("version", "0.1.0")
-                .put("auth", "bearer")
+                .put("version", "0.2.0")
+                .put("auth", "none")
                 .toString(),
             requestId = "request-id",
         )
@@ -26,7 +26,7 @@ class DiscoveryProtocolTest {
         assertNotNull(offer)
         assertEquals("zephyrus-m16", offer!!.name)
         assertEquals("192.168.1.10:17321", offer.address)
-        assertEquals("bearer", offer.auth)
+        assertEquals("none", offer.auth)
     }
 
     @Test

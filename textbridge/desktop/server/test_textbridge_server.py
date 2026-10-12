@@ -31,50 +31,31 @@ class ConfigTest(unittest.TestCase):
         base.update(payload)
         self.config_path.write_text(json.dumps(base), encoding="utf-8")
 
-    def test_load_config_reads_token_file(self) -> None:
-        token_path = Path(self.tmp.name) / "token"
-        token_path.write_text("file-token\n", encoding="utf-8")
-        self.write_config({"token_file": str(token_path)})
-
-        config = textbridge_server.load_config(self.config_path)
-
-        self.assertEqual(config.token, "file-token")
-
-    def test_load_config_reads_relative_token_file(self) -> None:
-        token_path = Path(self.tmp.name) / "token"
-        token_path.write_text("relative-token\n", encoding="utf-8")
-        self.write_config({"token_file": "token"})
-
-        config = textbridge_server.load_config(self.config_path)
-
-        self.assertEqual(config.token, "relative-token")
-
-    def test_load_config_keeps_legacy_token(self) -> None:
-        self.write_config({"token": "legacy-token"})
-
-        config = textbridge_server.load_config(self.config_path)
-
-        self.assertEqual(config.token, "legacy-token")
-
-    def test_load_config_rejects_missing_token_file(self) -> None:
-        self.write_config({"token_file": str(Path(self.tmp.name) / "missing")})
-
-        with self.assertRaises(textbridge_server.ConfigError):
-            textbridge_server.load_config(self.config_path)
-
-    def test_load_config_rejects_empty_token_file(self) -> None:
-        token_path = Path(self.tmp.name) / "token"
-        token_path.write_text("\n", encoding="utf-8")
-        self.write_config({"token_file": str(token_path)})
-
-        with self.assertRaises(textbridge_server.ConfigError):
-            textbridge_server.load_config(self.config_path)
-
-    def test_load_config_requires_token_source(self) -> None:
+    def test_load_config_without_token(self) -> None:
         self.write_config({})
+        config = textbridge_server.load_config(self.config_path)
+        self.assertEqual(config.listen_host, "127.0.0.1")
+        self.assertFalse(hasattr(config, "token"))
 
-        with self.assertRaises(textbridge_server.ConfigError):
-            textbridge_server.load_config(self.config_path)
+    def test_load_config_ignores_legacy_token_fields(self) -> None:
+        for payload in (
+            {"token": "legacy-token"},
+            {"token": ""},
+            {"token_file": str(Path(self.tmp.name) / "missing")},
+            {"token_file": "missing", "token": "legacy-token"},
+        ):
+            with self.subTest(payload=payload):
+                self.write_config(payload)
+                config = textbridge_server.load_config(self.config_path)
+                self.assertEqual(config.listen_port, 0)
+                self.assertFalse(hasattr(config, "token"))
+
+    def test_init_config_has_no_token(self) -> None:
+        textbridge_server.init_config(self.config_path, "127.0.0.1", 17321)
+        raw = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertNotIn("token", raw)
+        self.assertNotIn("token_file", raw)
+        self.assertEqual(textbridge_server.load_config(self.config_path).listen_port, 17321)
 
 
 class FakeFcitxSocket:
@@ -140,7 +121,6 @@ class ServerProtocolTest(unittest.TestCase):
         self.config = textbridge_server.ServerConfig(
             listen_host="127.0.0.1",
             listen_port=0,
-            token="secret-token",
             max_text_bytes=64,
             request_timeout_ms=200,
             runtime_dir=runtime,
@@ -154,17 +134,17 @@ class ServerProtocolTest(unittest.TestCase):
 
     def request(
         self,
-        token: str,
         payload: dict[str, object],
         path: str = "/v1/commit",
+        authorization: str | None = None,
     ) -> tuple[int, dict[str, object]]:
-        return self.raw_request(token, json.dumps(payload).encode("utf-8"), path=path)
+        return self.raw_request(json.dumps(payload).encode("utf-8"), path=path, authorization=authorization)
 
     def raw_request(
         self,
-        token: str,
         body_bytes: bytes,
         path: str = "/v1/commit",
+        authorization: str | None = None,
     ) -> tuple[int, dict[str, object]]:
         handler = textbridge_server.make_handler(self.config)
         server = textbridge_server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -177,7 +157,7 @@ class ServerProtocolTest(unittest.TestCase):
                 path,
                 body=body_bytes,
                 headers={
-                    "Authorization": f"Bearer {token}",
+                    **({"Authorization": authorization} if authorization is not None else {}),
                     "Content-Type": "application/json; charset=utf-8",
                 },
             )
@@ -197,7 +177,7 @@ class ServerProtocolTest(unittest.TestCase):
             return {"v": 1, "id": payload["id"], "status": "ok", "target_program": "test"}
 
         textbridge_server.forward_to_fcitx = fake_forward
-        status, body = self.request("secret-token", {"id": request_id, "text": "hello"})
+        status, body = self.request({"id": request_id, "text": "hello"})
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
         self.assertEqual(body["target_program"], "test")
@@ -207,7 +187,7 @@ class ServerProtocolTest(unittest.TestCase):
         text = "中文 ASCII emoji 😀\nsecond line"
 
         with FakeFcitxSocket(self.config.fcitx_socket) as fake_fcitx:
-            status, body = self.request("secret-token", {"id": request_id, "text": text})
+            status, body = self.request({"id": request_id, "text": text})
 
         self.assertEqual(status, 200)
         self.assertEqual(body["id"], request_id)
@@ -218,20 +198,35 @@ class ServerProtocolTest(unittest.TestCase):
         self.assertEqual(fake_fcitx.received_payload["id"], request_id)
         self.assertEqual(fake_fcitx.received_payload["text"], text)
 
-    def test_unauthorized(self) -> None:
-        status, body = self.request("wrong", {"id": str(uuid.uuid4()), "text": "hello"})
+    def test_legacy_authorization_is_ignored(self) -> None:
+        for path, payload in (
+            ("/v1/commit", {"text": "hello"}),
+            ("/v1/key", {"key": "Return", "modifiers": []}),
+        ):
+            with self.subTest(path=path), FakeFcitxSocket(self.config.fcitx_socket):
+                status, body = self.request(
+                    {"id": str(uuid.uuid4()), **payload},
+                    path=path,
+                    authorization="Bearer wrong",
+                )
+            self.assertEqual(status, 200)
+            self.assertEqual(body["status"], "ok")
+
+    def test_addon_user_rejection_is_preserved(self) -> None:
+        with FakeFcitxSocket(self.config.fcitx_socket, status="unauthorized"):
+            status, body = self.request({"id": str(uuid.uuid4()), "text": "hello"})
         self.assertEqual(status, 401)
         self.assertEqual(body["status"], "unauthorized")
 
     def test_fcitx_unavailable_without_socket(self) -> None:
-        status, body = self.request("secret-token", {"id": str(uuid.uuid4()), "text": "hello"})
+        status, body = self.request({"id": str(uuid.uuid4()), "text": "hello"})
         self.assertEqual(status, 503)
         self.assertEqual(body["status"], "fcitx_unavailable")
 
     def test_busy_composing_maps_to_conflict(self) -> None:
         request_id = str(uuid.uuid4())
         with FakeFcitxSocket(self.config.fcitx_socket, status="busy_composing"):
-            status, body = self.request("secret-token", {"id": request_id, "text": "hello"})
+            status, body = self.request({"id": request_id, "text": "hello"})
 
         self.assertEqual(status, 409)
         self.assertEqual(body["status"], "busy_composing")
@@ -239,37 +234,37 @@ class ServerProtocolTest(unittest.TestCase):
     def test_sensitive_field_maps_to_forbidden(self) -> None:
         request_id = str(uuid.uuid4())
         with FakeFcitxSocket(self.config.fcitx_socket, status="sensitive_field"):
-            status, body = self.request("secret-token", {"id": request_id, "text": "hello"})
+            status, body = self.request({"id": request_id, "text": "hello"})
 
         self.assertEqual(status, 403)
         self.assertEqual(body["status"], "sensitive_field")
 
     def test_mismatched_addon_response_id_is_unavailable(self) -> None:
         with FakeFcitxSocket(self.config.fcitx_socket, response_id=str(uuid.uuid4())):
-            status, body = self.request("secret-token", {"id": str(uuid.uuid4()), "text": "hello"})
+            status, body = self.request({"id": str(uuid.uuid4()), "text": "hello"})
 
         self.assertEqual(status, 503)
         self.assertEqual(body["status"], "fcitx_unavailable")
 
     def test_unknown_addon_status_is_unavailable(self) -> None:
         with FakeFcitxSocket(self.config.fcitx_socket, status="unknown_status"):
-            status, body = self.request("secret-token", {"id": str(uuid.uuid4()), "text": "hello"})
+            status, body = self.request({"id": str(uuid.uuid4()), "text": "hello"})
 
         self.assertEqual(status, 503)
         self.assertEqual(body["status"], "fcitx_unavailable")
 
     def test_text_too_large(self) -> None:
-        status, body = self.request("secret-token", {"id": str(uuid.uuid4()), "text": "x" * 65})
+        status, body = self.request({"id": str(uuid.uuid4()), "text": "x" * 65})
         self.assertEqual(status, 413)
         self.assertEqual(body["status"], "text_too_large")
 
     def test_empty_text_is_invalid(self) -> None:
-        status, body = self.request("secret-token", {"id": str(uuid.uuid4()), "text": ""})
+        status, body = self.request({"id": str(uuid.uuid4()), "text": ""})
         self.assertEqual(status, 400)
         self.assertEqual(body["status"], "invalid_request")
 
     def test_non_object_json_is_invalid(self) -> None:
-        status, body = self.raw_request("secret-token", b"[]")
+        status, body = self.raw_request(b"[]")
         self.assertEqual(status, 400)
         self.assertEqual(body["status"], "invalid_request")
 
@@ -278,7 +273,6 @@ class ServerProtocolTest(unittest.TestCase):
 
         with FakeFcitxSocket(self.config.fcitx_socket) as fake_fcitx:
             status, body = self.request(
-                "secret-token",
                 {
                     "id": request_id,
                     "key": "Return",
@@ -302,7 +296,6 @@ class ServerProtocolTest(unittest.TestCase):
 
         with FakeFcitxSocket(self.config.fcitx_socket) as fake_fcitx:
             status, body = self.request(
-                "secret-token",
                 {
                     "id": request_id,
                     "key": "V",
@@ -318,7 +311,6 @@ class ServerProtocolTest(unittest.TestCase):
 
     def test_key_action_rejects_invalid_key(self) -> None:
         status, body = self.request(
-            "secret-token",
             {
                 "id": str(uuid.uuid4()),
                 "key": "F13",
@@ -332,7 +324,6 @@ class ServerProtocolTest(unittest.TestCase):
 
     def test_key_action_rejects_invalid_modifier(self) -> None:
         status, body = self.request(
-            "secret-token",
             {
                 "id": str(uuid.uuid4()),
                 "key": "Return",
@@ -348,7 +339,6 @@ class ServerProtocolTest(unittest.TestCase):
         request_id = str(uuid.uuid4())
         with FakeFcitxSocket(self.config.fcitx_socket, status="invalid_key"):
             status, body = self.request(
-                "secret-token",
                 {
                     "id": request_id,
                     "key": "Return",
@@ -368,7 +358,6 @@ class DiscoveryProtocolTest(unittest.TestCase):
         self.config = textbridge_server.ServerConfig(
             listen_host="0.0.0.0",
             listen_port=17321,
-            token="secret-token",
             max_text_bytes=64,
             request_timeout_ms=200,
             runtime_dir=runtime,
@@ -405,15 +394,14 @@ class DiscoveryProtocolTest(unittest.TestCase):
         self.assertEqual(offer["name"], "test-host")
         self.assertEqual(offer["host"], "127.0.0.1")
         self.assertEqual(offer["port"], 17321)
-        self.assertEqual(offer["version"], "0.1.0")
-        self.assertEqual(offer["auth"], "bearer")
+        self.assertEqual(offer["version"], "0.2.0")
+        self.assertEqual(offer["auth"], "none")
 
     def test_discovery_echoes_configured_listen_host(self) -> None:
         request_id = str(uuid.uuid4())
         config = textbridge_server.ServerConfig(
             listen_host="192.168.1.10",
             listen_port=17321,
-            token="secret-token",
             max_text_bytes=64,
             request_timeout_ms=200,
             runtime_dir=Path(self.tmp.name) / "runtime",
@@ -448,7 +436,6 @@ class DiscoveryProtocolTest(unittest.TestCase):
         config = textbridge_server.ServerConfig(
             listen_host="0.0.0.0",
             listen_port=17321,
-            token="secret-token",
             max_text_bytes=64,
             request_timeout_ms=200,
             runtime_dir=Path(self.tmp.name) / "runtime",

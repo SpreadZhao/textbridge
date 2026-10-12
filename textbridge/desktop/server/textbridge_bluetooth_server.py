@@ -9,7 +9,6 @@ shared with textbridge_server.py.
 from __future__ import annotations
 
 import argparse
-import hmac
 import json
 import logging
 import socket
@@ -97,9 +96,6 @@ def handle_payload(config: textbridge_server.ServerConfig, payload: dict[str, An
     try:
         if payload.get("v") != 1:
             return error_response(request_id, "invalid_request")
-
-        if not hmac.compare_digest(str(payload.get("token", "")), config.token):
-            return error_response(request_id, "unauthorized")
 
         request_id = validate_request_id(payload.get("id"))
         action = payload.get("action")

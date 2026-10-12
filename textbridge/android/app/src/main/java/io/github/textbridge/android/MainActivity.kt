@@ -59,7 +59,6 @@ class MainActivity : ComponentActivity() {
                     onSettingsDiscoveryPortChange = viewModel::onSettingsDiscoveryPortChange,
                     onSettingsAdbPortChange = viewModel::onSettingsAdbPortChange,
                     onSettingsBluetoothDeviceChange = viewModel::onSettingsBluetoothDeviceChange,
-                    onSettingsTokenChange = viewModel::onSettingsTokenChange,
                     onRequestBluetoothPermission = requestBluetoothPermission,
                     onRefreshBluetoothDevices = refreshBluetoothDevices,
                     onSaveSettings = viewModel::saveSettings,

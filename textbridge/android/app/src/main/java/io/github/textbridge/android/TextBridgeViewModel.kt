@@ -38,14 +38,12 @@ class TextBridgeViewModel(
                     adbPort = settings.adbPort.toString(),
                     bluetoothDeviceAddress = settings.bluetoothDeviceAddress,
                     bluetoothDeviceName = settings.bluetoothDeviceName,
-                    token = settings.token,
                     settingsTransportMode = settings.transportMode,
                     settingsLanAddress = settings.lanAddress,
                     settingsDiscoveryPort = settings.discoveryPort.toString(),
                     settingsAdbPort = settings.adbPort.toString(),
                     settingsBluetoothDeviceAddress = settings.bluetoothDeviceAddress,
                     settingsBluetoothDeviceName = settings.bluetoothDeviceName,
-                    settingsToken = settings.token,
                     hasUnsavedSettings = false,
                     sendMode = settings.sendMode,
                     sendHistory = settings.sendHistory,
@@ -78,10 +76,6 @@ class TextBridgeViewModel(
                 bluetoothDeviceName = device?.name.orEmpty(),
             )
         }
-    }
-
-    fun onSettingsTokenChange(value: String) {
-        _uiState.update { it.withSettingsDraft(token = value) }
     }
 
     fun refreshBluetoothDevices(hasPermission: Boolean) {
@@ -147,7 +141,6 @@ class TextBridgeViewModel(
         val lanAddress = state.settingsLanAddress.trim()
         val bluetoothDeviceAddress = state.settingsBluetoothDeviceAddress.trim()
         val bluetoothDeviceName = state.settingsBluetoothDeviceName.trim()
-        val token = state.settingsToken
         if (transportMode == TransportMode.BLUETOOTH && bluetoothDeviceAddress.isBlank()) {
             _uiState.update { it.copy(status = "请选择蓝牙电脑") }
             return
@@ -161,7 +154,6 @@ class TextBridgeViewModel(
                 adbPort = adbPort,
                 bluetoothDeviceAddress = bluetoothDeviceAddress,
                 bluetoothDeviceName = bluetoothDeviceName,
-                token = token,
             )
             _uiState.update {
                 it.copy(
@@ -171,14 +163,12 @@ class TextBridgeViewModel(
                     adbPort = adbPort.toString(),
                     bluetoothDeviceAddress = bluetoothDeviceAddress,
                     bluetoothDeviceName = bluetoothDeviceName,
-                    token = token,
                     settingsTransportMode = transportMode,
                     settingsLanAddress = lanAddress,
                     settingsDiscoveryPort = discoveryPort.toString(),
                     settingsAdbPort = adbPort.toString(),
                     settingsBluetoothDeviceAddress = bluetoothDeviceAddress,
                     settingsBluetoothDeviceName = bluetoothDeviceName,
-                    settingsToken = token,
                     hasUnsavedSettings = false,
                     status = "配置已保存",
                 )
@@ -250,15 +240,10 @@ class TextBridgeViewModel(
     fun sendCurrentText(): Boolean {
         val state = uiState.value
         val endpoint = resolveEndpoint(state) ?: return false
-        val token = state.token
         val text = state.body
         val sendMode = state.sendMode
 
         when {
-            token.isBlank() -> {
-                _uiState.update { it.copy(status = "请填写访问令牌") }
-                return false
-            }
             text.isEmpty() -> {
                 _uiState.update { it.copy(status = "正文为空") }
                 return false
@@ -272,14 +257,12 @@ class TextBridgeViewModel(
                 if (endpoint.transportMode == TransportMode.BLUETOOTH) {
                     commitClient.postBluetoothCommit(
                         deviceAddress = endpoint.address,
-                        token = token,
                         requestId = UUID.randomUUID().toString(),
                         text = text,
                     )
                 } else {
                     commitClient.postCommit(
                         address = endpoint.address,
-                        token = token,
                         requestId = UUID.randomUUID().toString(),
                         text = text,
                     )
@@ -292,7 +275,6 @@ class TextBridgeViewModel(
                         if (endpoint.transportMode == TransportMode.BLUETOOTH) {
                             commitClient.postBluetoothKey(
                                 deviceAddress = endpoint.address,
-                                token = token,
                                 requestId = UUID.randomUUID().toString(),
                                 key = RemoteKey.RETURN,
                                 modifiers = emptyList(),
@@ -300,7 +282,6 @@ class TextBridgeViewModel(
                         } else {
                             commitClient.postKey(
                                 address = endpoint.address,
-                                token = token,
                                 requestId = UUID.randomUUID().toString(),
                                 key = RemoteKey.RETURN,
                                 modifiers = emptyList(),
@@ -350,12 +331,6 @@ class TextBridgeViewModel(
     fun sendKeyAction(key: RemoteKey, fixedModifiers: Set<KeyModifier> = emptySet()) {
         val state = uiState.value
         val endpoint = resolveEndpoint(state) ?: return
-        val token = state.token
-
-        if (token.isBlank()) {
-            _uiState.update { it.copy(status = "请填写访问令牌") }
-            return
-        }
 
         val modifiers = KeyModifier.entries.filter { it in state.selectedKeyModifiers || it in fixedModifiers }
 
@@ -372,7 +347,6 @@ class TextBridgeViewModel(
                 if (endpoint.transportMode == TransportMode.BLUETOOTH) {
                     commitClient.postBluetoothKey(
                         deviceAddress = endpoint.address,
-                        token = token,
                         requestId = UUID.randomUUID().toString(),
                         key = key,
                         modifiers = modifiers,
@@ -380,7 +354,6 @@ class TextBridgeViewModel(
                 } else {
                     commitClient.postKey(
                         address = endpoint.address,
-                        token = token,
                         requestId = UUID.randomUUID().toString(),
                         key = key,
                         modifiers = modifiers,
@@ -501,7 +474,6 @@ class TextBridgeViewModel(
         adbPort: String = settingsAdbPort,
         bluetoothDeviceAddress: String = settingsBluetoothDeviceAddress,
         bluetoothDeviceName: String = settingsBluetoothDeviceName,
-        token: String = settingsToken,
     ): TextBridgeUiState {
         return copy(
             settingsTransportMode = transportMode,
@@ -510,14 +482,12 @@ class TextBridgeViewModel(
             settingsAdbPort = adbPort,
             settingsBluetoothDeviceAddress = bluetoothDeviceAddress,
             settingsBluetoothDeviceName = bluetoothDeviceName,
-            settingsToken = token,
             hasUnsavedSettings = transportMode != this.transportMode ||
                 lanAddress != this.lanAddress ||
                 discoveryPort != this.discoveryPort ||
                 adbPort != this.adbPort ||
                 bluetoothDeviceAddress != this.bluetoothDeviceAddress ||
-                bluetoothDeviceName != this.bluetoothDeviceName ||
-                token != this.token,
+                bluetoothDeviceName != this.bluetoothDeviceName,
         )
     }
 

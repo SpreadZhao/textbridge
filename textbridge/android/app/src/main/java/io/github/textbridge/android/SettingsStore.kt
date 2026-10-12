@@ -20,7 +20,7 @@ private const val SETTINGS_NAME = "textbridge_settings"
 private val Context.textBridgeDataStore: DataStore<Preferences> by preferencesDataStore(
     name = SETTINGS_NAME,
     produceMigrations = { context ->
-        listOf(SharedPreferencesMigration(context, LEGACY_PREFS_NAME))
+        listOf(SharedPreferencesMigration(context, LEGACY_PREFS_NAME), RemoveLegacyTokenMigration)
     },
 )
 
@@ -34,7 +34,6 @@ interface TextBridgeSettingsRepository {
         adbPort: Int,
         bluetoothDeviceAddress: String,
         bluetoothDeviceName: String,
-        token: String,
     )
 
     suspend fun saveSendMode(sendMode: SendMode)
@@ -62,7 +61,6 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
                 adbPort = preferences[Keys.adbPort] ?: DEFAULT_COMMIT_PORT,
                 bluetoothDeviceAddress = preferences[Keys.bluetoothDeviceAddress].orEmpty(),
                 bluetoothDeviceName = preferences[Keys.bluetoothDeviceName].orEmpty(),
-                token = preferences[Keys.token].orEmpty(),
                 sendMode = SendMode.fromStorage(preferences[Keys.sendMode]),
                 sendHistory = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson]),
             )
@@ -75,7 +73,6 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         adbPort: Int,
         bluetoothDeviceAddress: String,
         bluetoothDeviceName: String,
-        token: String,
     ) {
         appContext.textBridgeDataStore.edit { preferences ->
             preferences[Keys.transportMode] = transportMode.storageValue
@@ -84,7 +81,6 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
             preferences[Keys.adbPort] = adbPort
             preferences[Keys.bluetoothDeviceAddress] = bluetoothDeviceAddress
             preferences[Keys.bluetoothDeviceName] = bluetoothDeviceName
-            preferences[Keys.token] = token
         }
     }
 
@@ -127,7 +123,6 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         val adbPort = intPreferencesKey("adb_port")
         val bluetoothDeviceAddress = stringPreferencesKey("bluetooth_device_address")
         val bluetoothDeviceName = stringPreferencesKey("bluetooth_device_name")
-        val token = stringPreferencesKey("token")
         val sendMode = stringPreferencesKey("send_mode")
         val sendHistoryJson = stringPreferencesKey("send_history_json")
     }

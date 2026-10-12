@@ -12,7 +12,6 @@ class BluetoothCommitProtocolTest {
         val json = JSONObject(
             String(
                 BluetoothCommitProtocol.commitRequestBody(
-                    token = "secret-token",
                     requestId = "request-id",
                     text = "hello",
                 ),
@@ -21,7 +20,7 @@ class BluetoothCommitProtocolTest {
 
         assertEquals(1, json.getInt("v"))
         assertEquals("request-id", json.getString("id"))
-        assertEquals("secret-token", json.getString("token"))
+        assertFalse(json.has("token"))
         assertEquals("commit", json.getString("action"))
         assertEquals("hello", json.getString("text"))
     }
@@ -31,7 +30,6 @@ class BluetoothCommitProtocolTest {
         val json = JSONObject(
             String(
                 BluetoothCommitProtocol.keyRequestBody(
-                    token = "secret-token",
                     requestId = "request-id",
                     key = RemoteKey.RETURN,
                     modifiers = listOf(KeyModifier.CONTROL),
@@ -41,6 +39,7 @@ class BluetoothCommitProtocolTest {
 
         assertEquals(1, json.getInt("v"))
         assertEquals("key", json.getString("action"))
+        assertFalse(json.has("token"))
         assertEquals("Return", json.getString("key"))
         assertEquals("Control", json.getJSONArray("modifiers").getString(0))
     }

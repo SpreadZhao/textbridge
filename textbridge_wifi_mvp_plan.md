@@ -85,7 +85,6 @@ textbridge/
 {
   "listen_host": "192.168.1.20",
   "listen_port": 17321,
-  "token": "由程序生成的至少 192 位随机令牌",
   "max_text_bytes": 16384,
   "request_timeout_ms": 2000
 }
@@ -98,7 +97,6 @@ textbridge/
 ```http
 POST /v1/commit HTTP/1.1
 Host: 192.168.1.20:17321
-Authorization: Bearer <token>
 Content-Type: application/json; charset=utf-8
 
 {
@@ -114,7 +112,7 @@ Content-Type: application/json; charset=utf-8
 - 空字符串拒绝；
 - 首版最大 16 KiB；
 - 允许换行，但换行只是文本内容，不等同于模拟 Enter；
-- 令牌通过 `Authorization` 请求头发送，不放在 URL 中。
+- HTTP 请求无需访问令牌；旧认证头会被忽略。
 
 ### 5.3 成功响应
 
@@ -131,7 +129,7 @@ Content-Type: application/json; charset=utf-8
 | HTTP | `status` | 含义 |
 |---:|---|---|
 | 400 | `invalid_request` | JSON、字段或 UTF-8 无效 |
-| 401 | `unauthorized` | 令牌错误 |
+| 401 | `unauthorized` | 本机插件拒绝非同一用户的请求 |
 | 409 | `busy_composing` | 电脑端正在进行 Rime/Fcitx 组词 |
 | 403 | `sensitive_field` | 输入框被标记为密码或敏感字段 |
 | 413 | `text_too_large` | 文本超过限制 |
@@ -147,12 +145,11 @@ Content-Type: application/json; charset=utf-8
 `textbridge-server` 只负责：
 
 1. 监听指定的局域网 IP 和端口；
-2. 校验 Bearer Token；
-3. 限制请求体大小；
-4. 解析 JSON；
-5. 将请求转发给 Fcitx5 插件；
-6. 等待插件响应并转换为 HTTP 响应；
-7. 记录不包含正文和令牌的结构化日志。
+2. 限制请求体大小；
+3. 解析 JSON；
+4. 将请求转发给 Fcitx5 插件；
+5. 等待插件响应并转换为 HTTP 响应；
+6. 记录不包含正文的结构化日志。
 
 网络请求解析与 Fcitx5 分离，避免网络输入直接进入输入法主进程。
 
@@ -324,11 +321,10 @@ Result commitText(const std::string &text) {
 
 最低安全要求：
 
-- 使用 `secrets.token_urlsafe(24)` 或更强的随机令牌；
-- 使用常量时间比较校验令牌；
+- 应用层不使用令牌；任何可访问 HTTP 服务的设备均可发送请求；
 - 服务只绑定指定 LAN IP；
 - 防火墙只允许本地子网访问端口 17321；
-- 不记录正文和令牌；
+- 不记录正文；
 - 密码和敏感输入框默认拒绝；
 - 限制请求大小和请求超时；
 - 不提供命令执行、按键模拟或任意文件访问接口。

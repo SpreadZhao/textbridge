@@ -178,7 +178,7 @@
         {
           textbridge-server = pkgs.stdenvNoCC.mkDerivation {
             pname = "textbridge-server";
-            version = "0.1.0";
+            version = "0.2.0";
             src = ./textbridge/desktop/server;
             dontConfigure = true;
             dontBuild = true;
@@ -227,7 +227,7 @@
 
           textbridge-adb-connect = pkgs.stdenvNoCC.mkDerivation {
             pname = "textbridge-adb-connect";
-            version = "0.1.0";
+            version = "0.2.0";
             src = ./textbridge/tools;
             dontConfigure = true;
             dontBuild = true;
@@ -265,7 +265,7 @@
 
           fcitx5-textbridge = pkgs.stdenv.mkDerivation {
             pname = "fcitx5-textbridge";
-            version = "0.1.0";
+            version = "0.2.0";
             src = ./textbridge/desktop/fcitx5-addon;
 
             nativeBuildInputs = [
@@ -326,7 +326,6 @@
             serverConfig = pkgs.writeText "textbridge-server.json" (builtins.toJSON ({
               listen_host = cfg.listenHost;
               listen_port = cfg.port;
-              token_file = cfg.tokenFile;
               max_text_bytes = cfg.maxTextBytes;
               request_timeout_ms = cfg.requestTimeoutMs;
               discovery_enabled = cfg.discovery.enable;
@@ -362,12 +361,6 @@
                   defaultText = lib.literalExpression "inputs.textbridge.packages.\${pkgs.system}.textbridge-adb-connect";
                   description = "Package providing the textbridge-adb-connect helper.";
                 };
-              };
-
-              tokenFile = lib.mkOption {
-                type = lib.types.nullOr lib.types.str;
-                default = null;
-                description = "Path to a file containing the TextBridge bearer token. This value is read at runtime and must not point into the Nix store.";
               };
 
               listenHost = lib.mkOption {
@@ -465,23 +458,6 @@
 
             config = lib.mkMerge [
               (lib.mkIf (cfg.enable || bluetoothCfg.enable) {
-                assertions = [
-                  {
-                    assertion = cfg.tokenFile != null;
-                    message = ''
-                      services.textbridge.server.tokenFile must be set.
-                      Generate a token with:
-                        python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
-                      Then provide it through sops-nix, for example:
-                        services.textbridge.server.tokenFile = config.sops.secrets."textbridge-token".path;
-                    '';
-                  }
-                  {
-                    assertion = cfg.tokenFile == null || !(lib.hasPrefix "/nix/store/" cfg.tokenFile);
-                    message = "services.textbridge.server.tokenFile must not point into the Nix store.";
-                  }
-                ];
-
                 environment.systemPackages =
                   lib.optionals cfg.enable ([ cfg.package ] ++ lib.optional cfg.adbHelper.enable cfg.adbHelper.package)
                   ++ lib.optional bluetoothCfg.enable bluetoothCfg.package;

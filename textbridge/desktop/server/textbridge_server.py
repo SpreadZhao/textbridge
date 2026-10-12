@@ -9,11 +9,9 @@ Fcitx5 addon, and maps the addon result back to HTTP.
 from __future__ import annotations
 
 import argparse
-import hmac
 import json
 import logging
 import os
-import secrets
 import socket
 import sys
 import tempfile
@@ -27,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 
-TEXTBRIDGE_VERSION = "0.1.0"
+TEXTBRIDGE_VERSION = "0.2.0"
 DEFAULT_PORT = 17321
 DEFAULT_DISCOVERY_PORT = 17322
 DEFAULT_MAX_TEXT_BYTES = 16 * 1024
@@ -78,7 +76,6 @@ ALLOWED_KEY_MODIFIERS = ("Control", "Shift", "Alt")
 class ServerConfig:
     listen_host: str
     listen_port: int
-    token: str
     max_text_bytes: int
     request_timeout_ms: int
     runtime_dir: Path
@@ -146,29 +143,6 @@ def default_runtime_dir() -> Path:
     return xdg_runtime_dir() / "textbridge"
 
 
-def load_token(raw: dict[str, Any], config_path: Path) -> str:
-    token_file = raw.get("token_file")
-    if token_file is not None:
-        token_path = Path(str(token_file)).expanduser()
-        if not token_path.is_absolute():
-            token_path = config_path.parent / token_path
-        try:
-            token = token_path.read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise ConfigError(f"cannot read token_file {token_path}: {exc.strerror}") from exc
-        if token == "":
-            raise ConfigError(f"token_file {token_path} is empty")
-        return token
-
-    token = raw.get("token")
-    if token is None:
-        raise ConfigError("server config must set token_file or token")
-    token_value = str(token)
-    if token_value == "":
-        raise ConfigError("token must not be empty")
-    return token_value
-
-
 def load_config(path: Path) -> ServerConfig:
     with path.open("r", encoding="utf-8") as fp:
         raw = json.load(fp)
@@ -179,7 +153,6 @@ def load_config(path: Path) -> ServerConfig:
     return ServerConfig(
         listen_host=str(raw["listen_host"]),
         listen_port=int(raw.get("listen_port", DEFAULT_PORT)),
-        token=load_token(raw, path),
         max_text_bytes=int(raw.get("max_text_bytes", DEFAULT_MAX_TEXT_BYTES)),
         request_timeout_ms=int(raw.get("request_timeout_ms", DEFAULT_TIMEOUT_MS)),
         runtime_dir=runtime_dir,
@@ -198,7 +171,6 @@ def init_config(path: Path, listen_host: str, listen_port: int) -> None:
     config = {
         "listen_host": listen_host,
         "listen_port": listen_port,
-        "token": secrets.token_urlsafe(32),
         "max_text_bytes": DEFAULT_MAX_TEXT_BYTES,
         "request_timeout_ms": DEFAULT_TIMEOUT_MS,
         "discovery_enabled": True,
@@ -208,12 +180,11 @@ def init_config(path: Path, listen_host: str, listen_port: int) -> None:
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     path.chmod(0o600)
     print(f"Wrote {path}")
-    print("Token:", config["token"])
 
 
 def make_handler(config: ServerConfig) -> type[BaseHTTPRequestHandler]:
     class TextBridgeHandler(BaseHTTPRequestHandler):
-        server_version = "TextBridge/0.1"
+        server_version = "TextBridge/0.2"
 
         def do_POST(self) -> None:  # noqa: N802
             started = time.monotonic()
@@ -225,14 +196,6 @@ def make_handler(config: ServerConfig) -> type[BaseHTTPRequestHandler]:
                 if self.path not in {"/v1/commit", "/v1/key"}:
                     status = "not_found"
                     http_status = HTTPStatus.NOT_FOUND
-                    self.write_json(http_status, {"status": status})
-                    return
-
-                auth = self.headers.get("Authorization", "")
-                expected = f"Bearer {config.token}"
-                if not hmac.compare_digest(auth, expected):
-                    status = "unauthorized"
-                    http_status = HTTPStatus.UNAUTHORIZED
                     self.write_json(http_status, {"status": status})
                     return
 
@@ -426,7 +389,7 @@ def make_discovery_offer(config: ServerConfig, request_id: str, requester_addres
         "host": advertised_host(config.listen_host, requester_address),
         "port": config.listen_port,
         "version": TEXTBRIDGE_VERSION,
-        "auth": "bearer",
+        "auth": "none",
     }
 
 
@@ -512,7 +475,7 @@ def run(config: ServerConfig) -> None:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="TextBridge Wi-Fi HTTP server")
     parser.add_argument("--config", type=Path, default=default_config_path())
-    parser.add_argument("--init-config", action="store_true", help="write a new config with a random token")
+    parser.add_argument("--init-config", action="store_true", help="write a new server config")
     parser.add_argument("--listen-host", default="127.0.0.1", help="host used by --init-config")
     parser.add_argument("--listen-port", type=int, default=DEFAULT_PORT, help="port used by --init-config")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])

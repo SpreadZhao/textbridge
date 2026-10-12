@@ -18,7 +18,6 @@
     <string name="bluetooth_select_device">选择蓝牙电脑</string>
     <string name="bluetooth_no_paired_devices">无已配对设备</string>
     <string name="refresh">刷新</string>
-    <string name="access_token">访问令牌</string>
     <string name="save_settings">保存配置</string>
     <string name="unsaved_settings">配置未保存</string>
     <string name="text_to_send">要发送的文本</string>

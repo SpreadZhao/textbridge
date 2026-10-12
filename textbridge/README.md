@@ -104,13 +104,12 @@ nix run path:.#textbridge-server
 
 ```sh
 curl -sS \
-  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json; charset=utf-8" \
   -d '{"id":"0cb2d5d8-1222-4fb7-bd10-6a02613dc18e","text":"来自 curl 的文本"}' \
   http://192.168.1.20:17321/v1/commit
 ```
 
-服务日志只记录请求 ID、状态、HTTP 状态、来源地址和耗时，不记录正文或令牌。
+服务日志只记录请求 ID、状态、HTTP 状态、来源地址和耗时，不记录正文。
 
 运行服务端协议和本地 Unix socket 转发测试：
 
@@ -126,7 +125,7 @@ Nix 打包：
 nix build path:.#textbridge-server
 ```
 
-推荐用 TextBridge 的 NixOS server module 管理 Python server、systemd 用户服务、server 配置和防火墙端口。访问令牌通过 `tokenFile` 在运行时读取，不会写进 Nix store。module 默认也会安装独立的 `textbridge-adb-connect` 包，用于 USB/ADB 模式建立端口转发：
+推荐用 TextBridge 的 NixOS server module 管理 Python server、systemd 用户服务、server 配置和防火墙端口。服务无需访问令牌。module 默认也会安装独立的 `textbridge-adb-connect` 包，用于 USB/ADB 模式建立端口转发：
 
 ```nix
 {
@@ -134,15 +133,8 @@ nix build path:.#textbridge-server
     inputs.textbridge.nixosModules.server
   ];
 
-  sops.secrets.textbridge-token = {
-    owner = "spreadzhao";
-    group = "users";
-    mode = "0400";
-  };
-
   services.textbridge.server = {
     enable = true;
-    tokenFile = config.sops.secrets."textbridge-token".path;
     listenHost = "0.0.0.0";
     port = 17321;
     adbHelper.enable = true;
@@ -152,12 +144,6 @@ nix build path:.#textbridge-server
   # 可选：启用蓝牙 RFCOMM 接收端。
   services.textbridge.bluetooth.enable = true;
 }
-```
-
-生成令牌示例：
-
-```sh
-python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
 Fcitx5 插件仍按输入法配置接入：
@@ -195,11 +181,11 @@ App 使用 Compose 和 Navigation 3，包含发送、历史、配置三个页面
 - `USB/ADB`：填写 TextBridge server 的 TCP 端口；App 会发送到手机本机的 `127.0.0.1:<port>`，由电脑侧 `adb reverse` 转发到桌面 server。
 - `蓝牙`：先在系统蓝牙里和电脑配对，再在 App 中授权蓝牙并选择已配对电脑；蓝牙模式不使用局域网扫描。
 
-地址、发现端口、ADB 端口、发送方式、令牌和最近 50 条成功发送历史保存在 DataStore；只有服务端返回 `status=ok` 时才清空正文并写入历史，失败会保留正文且不记录历史。
+地址、发现端口、ADB 端口、发送方式和最近 50 条成功发送历史保存在 DataStore；只有服务端返回 `status=ok` 时才清空正文并写入历史，失败会保留正文且不记录历史。
 
 ## USB/ADB 模式
 
-USB/ADB 模式适合手机和电脑不在同一局域网、或者局域网广播不可用的场景。它仍使用同一个 HTTP commit 协议和同一个 token。
+USB/ADB 模式适合手机和电脑不在同一局域网、或者局域网广播不可用的场景。它使用同一个 HTTP commit 协议，无需令牌。
 
 1. 启动 TextBridge server，并确认端口，例如 `17321`。
 2. 手机开启 USB 调试，连接电脑并授权。
@@ -239,10 +225,6 @@ UDP discovery 只用于局域网模式，不会经过 `adb reverse`。
 1. 启用并启动桌面端蓝牙服务：
 
 ```nix
-services.textbridge.server = {
-  tokenFile = config.sops.secrets."textbridge-token".path;
-};
-
 services.textbridge.bluetooth = {
   enable = true;
   channel = 22; # Bluetooth RFCOMM channel, not a TCP/UDP port.
@@ -266,19 +248,24 @@ pairable on
 discoverable on
 ```
 
-3. Android 配置页选择 `蓝牙`，授权蓝牙权限，选择已配对电脑，填写同一个访问令牌并保存。
+3. Android 配置页选择 `蓝牙`，授权蓝牙权限，选择已配对电脑并保存，无需填写令牌。
 
-蓝牙服务使用固定 UUID `6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42`，默认 RFCOMM channel 是 `22`。这不是 TCP/UDP 端口，手机端会通过 UUID 查询 SDP 记录并自动使用该 channel；如需避让本机其它 RFCOMM 服务，可通过 `services.textbridge.bluetooth.channel` 改成 `1..30` 之间的值。配对提供链路层保护，TextBridge 仍会校验访问令牌；不要把令牌交给不受信任设备。
+蓝牙服务使用固定 UUID `6f6f3b6e-8ff4-4a5f-8f24-0f8e7f4a7d42`，默认 RFCOMM channel 是 `22`。这不是 TCP/UDP 端口，手机端会通过 UUID 查询 SDP 记录并自动使用该 channel；如需避让本机其它 RFCOMM 服务，可通过 `services.textbridge.bluetooth.channel` 改成 `1..30` 之间的值。蓝牙仍要求系统配对，TextBridge 不再额外校验访问令牌。
+
+## 从 0.1 升级到 0.2
+
+服务端与 Android App 应一起升级。NixOS 配置需要移除 `services.textbridge.server.tokenFile` 和不再使用的令牌 secret。旧 JSON 配置中的 `token`、`token_file` 和旧客户端附带的认证字段会被忽略，服务启动不再读取令牌文件。
+
+新版 App 首次读取设置时会清除旧 DataStore 或 SharedPreferences 中的令牌，连接设置和发送历史继续保留。新版客户端不支持仍要求令牌的旧服务端。UDP discovery 继续使用 v1，认证信息改为 `auth: "none"`。
 
 ## 安全边界
 
-当前版本使用局域网明文 HTTP，仅适合本人控制的家庭或开发网络。不要在公共 Wi-Fi、校园访客网络、酒店网络或不可信局域网中发送敏感内容。
+当前版本的 HTTP 和蓝牙消息均不使用应用层访问令牌。任何能访问 HTTP 服务的设备都可以发送文字和快捷键，局域网明文 HTTP 仅适合本人控制的家庭或开发网络。不要在公共 Wi-Fi、校园访客网络、酒店网络或不可信局域网中发送敏感内容。
 
 最低要求：
 
-- 使用随机令牌，并通过 `tokenFile` 或同等秘密管理方式提供给 server；
 - 防火墙只允许本地子网访问配置的 HTTP TCP 端口和 discovery UDP 端口；
-- 服务端不记录正文和令牌；Android App 会在手机本机保存最近 50 条成功发送文本历史；
+- 服务端不记录正文；Android App 会在手机本机保存最近 50 条成功发送文本历史；
 - 对密码或敏感输入框尽力拒绝；
 - 单次文本默认限制为 16 KiB。
 

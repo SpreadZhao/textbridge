@@ -10,19 +10,17 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 interface TextBridgeCommitClient {
-    fun postCommit(address: String, token: String, requestId: String, text: String): SendResult
+    fun postCommit(address: String, requestId: String, text: String): SendResult
     fun postKey(
         address: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
     ): SendResult
 
-    fun postBluetoothCommit(deviceAddress: String, token: String, requestId: String, text: String): SendResult
+    fun postBluetoothCommit(deviceAddress: String, requestId: String, text: String): SendResult
     fun postBluetoothKey(
         deviceAddress: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
@@ -32,10 +30,9 @@ interface TextBridgeCommitClient {
 class CommitClient(
     private val bluetoothClient: TextBridgeBluetoothCommitClient = UnavailableBluetoothCommitClient,
 ) : TextBridgeCommitClient {
-    override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
+    override fun postCommit(address: String, requestId: String, text: String): SendResult {
         return postJson(
             url = CommitProtocol.normalizeCommitUrl(address),
-            token = token,
             body = CommitProtocol.requestBody(requestId, text),
             successMessage = "已发送",
         )
@@ -43,14 +40,12 @@ class CommitClient(
 
     override fun postKey(
         address: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
     ): SendResult {
         return postJson(
             url = CommitProtocol.normalizeKeyUrl(address),
-            token = token,
             body = CommitProtocol.keyRequestBody(requestId, key, modifiers),
             successMessage = "按键已发送",
         )
@@ -58,13 +53,11 @@ class CommitClient(
 
     override fun postBluetoothCommit(
         deviceAddress: String,
-        token: String,
         requestId: String,
         text: String,
     ): SendResult {
         return bluetoothClient.postCommit(
             deviceAddress = deviceAddress,
-            token = token,
             requestId = requestId,
             text = text,
         )
@@ -72,21 +65,19 @@ class CommitClient(
 
     override fun postBluetoothKey(
         deviceAddress: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
     ): SendResult {
         return bluetoothClient.postKey(
             deviceAddress = deviceAddress,
-            token = token,
             requestId = requestId,
             key = key,
             modifiers = modifiers,
         )
     }
 
-    private fun postJson(url: String, token: String, body: ByteArray, successMessage: String): SendResult {
+    private fun postJson(url: String, body: ByteArray, successMessage: String): SendResult {
         var connection: HttpURLConnection? = null
         return try {
             connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -94,7 +85,6 @@ class CommitClient(
                 connectTimeout = 3000
                 readTimeout = 5000
                 doOutput = true
-                setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 setRequestProperty("Accept", "application/json")
                 setFixedLengthStreamingMode(body.size)
@@ -180,7 +170,7 @@ object CommitProtocol {
         return when (status) {
             "invalid_request" -> "请求无效"
             "invalid_key" -> "按键无效"
-            "unauthorized" -> "令牌错误"
+            "unauthorized" -> "服务拒绝请求"
             "busy_composing" -> "电脑正在组词"
             "sensitive_field" -> "目标输入框受保护"
             "text_too_large" -> "正文过长"

@@ -8,6 +8,11 @@ import org.junit.Test
 
 class CommitProtocolTest {
     @Test
+    fun unauthorizedUsesGenericFailureMessage() {
+        assertEquals("服务拒绝请求", CommitProtocol.mapFailure(401, "unauthorized"))
+    }
+
+    @Test
     fun normalizeCommitUrlAddsSchemeAndPath() {
         assertEquals("http://192.168.1.10:17321/v1/commit", CommitProtocol.normalizeCommitUrl("192.168.1.10:17321"))
     }

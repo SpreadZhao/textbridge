@@ -31,7 +31,6 @@ class TextBridgeViewModelTest {
                 lanAddress = "old:17321",
                 discoveryPort = 17322,
                 adbPort = 17321,
-                token = "old-token",
             ),
         )
         val viewModel = newViewModel(settingsStore)
@@ -41,7 +40,6 @@ class TextBridgeViewModelTest {
         viewModel.onSettingsLanAddressChange("new:17321")
         viewModel.onSettingsDiscoveryPortChange("17323")
         viewModel.onSettingsAdbPortChange("18000")
-        viewModel.onSettingsTokenChange("new-token")
 
         assertTrue(viewModel.uiState.value.hasUnsavedSettings)
 
@@ -53,12 +51,10 @@ class TextBridgeViewModelTest {
         assertEquals("new:17321", state.lanAddress)
         assertEquals("17323", state.discoveryPort)
         assertEquals("18000", state.adbPort)
-        assertEquals("new-token", state.token)
         assertEquals(TransportMode.ADB, state.settingsTransportMode)
         assertEquals("new:17321", state.settingsLanAddress)
         assertEquals("17323", state.settingsDiscoveryPort)
         assertEquals("18000", state.settingsAdbPort)
-        assertEquals("new-token", state.settingsToken)
         assertFalse(state.hasUnsavedSettings)
         assertEquals("配置已保存", state.status)
         assertEquals(1, settingsStore.saveConnectionSettingsCalls)
@@ -145,7 +141,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -167,7 +162,7 @@ class TextBridgeViewModelTest {
         val commitClient = FakeCommitClient()
         val viewModel = newViewModel(
             settingsRepository = FakeSettingsRepository(
-                TextBridgeSettings(token = "token"),
+                TextBridgeSettings(),
             ),
             commitClient = commitClient,
         )
@@ -183,7 +178,7 @@ class TextBridgeViewModelTest {
     }
 
     @Test
-    fun sendCurrentTextReturnsFalseWhenTokenIsMissing() = runTest {
+    fun sendCurrentTextStartsWithoutToken() = runTest {
         val commitClient = FakeCommitClient()
         val viewModel = newViewModel(
             settingsRepository = FakeSettingsRepository(
@@ -197,9 +192,9 @@ class TextBridgeViewModelTest {
         val sendStarted = viewModel.sendCurrentText()
         advanceUntilIdle()
 
-        assertFalse(sendStarted)
-        assertEquals("请填写访问令牌", viewModel.uiState.value.status)
-        assertTrue(commitClient.events.isEmpty())
+        assertTrue(sendStarted)
+        assertEquals("已发送", viewModel.uiState.value.status)
+        assertEquals(listOf("commit:192.168.1.10:17321"), commitClient.events)
     }
 
     @Test
@@ -209,7 +204,6 @@ class TextBridgeViewModelTest {
             settingsRepository = FakeSettingsRepository(
                 TextBridgeSettings(
                     lanAddress = "192.168.1.10:17321",
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -232,7 +226,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.ADB,
                     adbPort = 18000,
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -258,7 +251,6 @@ class TextBridgeViewModelTest {
                     transportMode = TransportMode.BLUETOOTH,
                     bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
                     bluetoothDeviceName = "desktop",
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -283,7 +275,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.ADB,
                     adbPort = 18000,
-                    token = "token",
                     sendMode = SendMode.SEND_THEN_ENTER,
                 ),
             ),
@@ -311,7 +302,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.BLUETOOTH,
                     bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
-                    token = "token",
                     sendMode = SendMode.SEND_THEN_ENTER,
                 ),
             ),
@@ -341,7 +331,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    token = "token",
                     sendMode = SendMode.SEND_THEN_ENTER,
                 ),
             ),
@@ -370,7 +359,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    token = "token",
                     sendMode = SendMode.SEND_THEN_ENTER,
                 ),
             ),
@@ -396,7 +384,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.ADB,
                     adbPort = 18000,
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -423,7 +410,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.BLUETOOTH,
                     bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -449,7 +435,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -474,7 +459,6 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    token = "token",
                 ),
             ),
             commitClient = commitClient,
@@ -549,7 +533,6 @@ private class FakeSettingsRepository(
         adbPort: Int,
         bluetoothDeviceAddress: String,
         bluetoothDeviceName: String,
-        token: String,
     ) {
         saveConnectionSettingsCalls += 1
         settingsState.value = settingsState.value.copy(
@@ -559,7 +542,6 @@ private class FakeSettingsRepository(
             adbPort = adbPort,
             bluetoothDeviceAddress = bluetoothDeviceAddress,
             bluetoothDeviceName = bluetoothDeviceName,
-            token = token,
         )
     }
 
@@ -599,7 +581,7 @@ private class FakeCommitClient : TextBridgeCommitClient {
     var commitResult = SendResult(ok = true, message = "已发送")
     var keyResult = SendResult(ok = true, message = "按键已发送")
 
-    override fun postCommit(address: String, token: String, requestId: String, text: String): SendResult {
+    override fun postCommit(address: String, requestId: String, text: String): SendResult {
         addresses += address
         events += "commit:$address"
         return commitResult
@@ -607,7 +589,6 @@ private class FakeCommitClient : TextBridgeCommitClient {
 
     override fun postKey(
         address: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
@@ -620,7 +601,6 @@ private class FakeCommitClient : TextBridgeCommitClient {
 
     override fun postBluetoothCommit(
         deviceAddress: String,
-        token: String,
         requestId: String,
         text: String,
     ): SendResult {
@@ -631,7 +611,6 @@ private class FakeCommitClient : TextBridgeCommitClient {
 
     override fun postBluetoothKey(
         deviceAddress: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,

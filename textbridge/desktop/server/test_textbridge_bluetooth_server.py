@@ -23,7 +23,6 @@ class BluetoothProtocolTest(unittest.TestCase):
         self.config = textbridge_server.ServerConfig(
             listen_host="127.0.0.1",
             listen_port=0,
-            token="secret-token",
             max_text_bytes=64,
             request_timeout_ms=200,
             runtime_dir=runtime,
@@ -65,7 +64,6 @@ class BluetoothProtocolTest(unittest.TestCase):
             {
                 "v": 1,
                 "id": request_id,
-                "token": "secret-token",
                 "action": "commit",
                 "text": "hello",
             }
@@ -91,7 +89,6 @@ class BluetoothProtocolTest(unittest.TestCase):
             {
                 "v": 1,
                 "id": request_id,
-                "token": "secret-token",
                 "action": "key",
                 "key": "V",
                 "modifiers": ["Alt", "Control", "Control"],
@@ -103,21 +100,32 @@ class BluetoothProtocolTest(unittest.TestCase):
         self.assertEqual(captured["key"], "V")
         self.assertEqual(captured["modifiers"], ["Control", "Alt"])
 
-    def test_unauthorized_does_not_forward(self) -> None:
+    def test_legacy_token_is_ignored(self) -> None:
         def fake_forward(config, payload):
-            raise AssertionError("unauthorized requests must not reach fcitx")
+            self.assertNotIn("token", payload)
+            return {"v": 1, "id": payload["id"], "status": "ok"}
 
         textbridge_server.forward_to_fcitx = fake_forward
-        response = self.frame(
-            {
-                "v": 1,
-                "id": str(uuid.uuid4()),
-                "token": "wrong",
-                "action": "commit",
-                "text": "hello",
-            }
-        )
+        for action, payload in (
+            ("commit", {"text": "hello"}),
+            ("key", {"key": "Return", "modifiers": []}),
+        ):
+            with self.subTest(action=action):
+                response = self.frame({
+                    "v": 1,
+                    "id": str(uuid.uuid4()),
+                    "token": "wrong",
+                    "action": action,
+                    **payload,
+                })
+                self.assertEqual(response["status"], "ok")
 
+    def test_addon_user_rejection_is_preserved(self) -> None:
+        def fake_forward(config, payload):
+            return {"v": 1, "id": payload["id"], "status": "unauthorized"}
+
+        textbridge_server.forward_to_fcitx = fake_forward
+        response = self.frame({"v": 1, "id": str(uuid.uuid4()), "action": "commit", "text": "hello"})
         self.assertEqual(response["status"], "unauthorized")
 
     def test_text_too_large(self) -> None:
@@ -125,7 +133,6 @@ class BluetoothProtocolTest(unittest.TestCase):
             {
                 "v": 1,
                 "id": str(uuid.uuid4()),
-                "token": "secret-token",
                 "action": "commit",
                 "text": "x" * 65,
             }
@@ -138,7 +145,6 @@ class BluetoothProtocolTest(unittest.TestCase):
             {
                 "v": 1,
                 "id": str(uuid.uuid4()),
-                "token": "secret-token",
                 "action": "key",
                 "key": "F13",
                 "modifiers": [],
@@ -166,7 +172,6 @@ class BluetoothProtocolTest(unittest.TestCase):
             request = {
                 "v": 1,
                 "id": request_id,
-                "token": "secret-token",
                 "action": "commit",
                 "text": "hello",
             }

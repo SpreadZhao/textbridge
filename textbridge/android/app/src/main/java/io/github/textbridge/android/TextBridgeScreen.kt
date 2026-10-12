@@ -65,7 +65,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
@@ -99,7 +98,6 @@ fun TextBridgeApp(
     onSettingsDiscoveryPortChange: (String) -> Unit,
     onSettingsAdbPortChange: (String) -> Unit,
     onSettingsBluetoothDeviceChange: (String) -> Unit,
-    onSettingsTokenChange: (String) -> Unit,
     onRequestBluetoothPermission: () -> Unit,
     onRefreshBluetoothDevices: () -> Unit,
     onSaveSettings: () -> Unit,
@@ -206,7 +204,6 @@ fun TextBridgeApp(
                             onDiscoveryPortChange = onSettingsDiscoveryPortChange,
                             onAdbPortChange = onSettingsAdbPortChange,
                             onBluetoothDeviceChange = onSettingsBluetoothDeviceChange,
-                            onTokenChange = onSettingsTokenChange,
                             onRequestBluetoothPermission = onRequestBluetoothPermission,
                             onRefreshBluetoothDevices = onRefreshBluetoothDevices,
                             onScan = onScan,
@@ -481,7 +478,6 @@ private fun SettingsScreen(
     onDiscoveryPortChange: (String) -> Unit,
     onAdbPortChange: (String) -> Unit,
     onBluetoothDeviceChange: (String) -> Unit,
-    onTokenChange: (String) -> Unit,
     onRequestBluetoothPermission: () -> Unit,
     onRefreshBluetoothDevices: () -> Unit,
     onScan: () -> Unit,
@@ -573,19 +569,6 @@ private fun SettingsScreen(
                 )
             }
         }
-
-        OutlinedTextField(
-            value = state.settingsToken,
-            onValueChange = onTokenChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.access_token)) },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done,
-            ),
-        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),

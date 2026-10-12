@@ -55,10 +55,9 @@ class BluetoothDeviceRepository(context: Context) : TextBridgeBluetoothDeviceRep
 }
 
 interface TextBridgeBluetoothCommitClient {
-    fun postCommit(deviceAddress: String, token: String, requestId: String, text: String): SendResult
+    fun postCommit(deviceAddress: String, requestId: String, text: String): SendResult
     fun postKey(
         deviceAddress: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
@@ -66,13 +65,12 @@ interface TextBridgeBluetoothCommitClient {
 }
 
 object UnavailableBluetoothCommitClient : TextBridgeBluetoothCommitClient {
-    override fun postCommit(deviceAddress: String, token: String, requestId: String, text: String): SendResult {
+    override fun postCommit(deviceAddress: String, requestId: String, text: String): SendResult {
         return SendResult(ok = false, message = "蓝牙不可用")
     }
 
     override fun postKey(
         deviceAddress: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
@@ -85,11 +83,10 @@ class BluetoothCommitClient(context: Context) : TextBridgeBluetoothCommitClient 
     private val appContext = context.applicationContext
     private val serviceUuid = UUID.fromString(TEXTBRIDGE_BLUETOOTH_SERVICE_UUID)
 
-    override fun postCommit(deviceAddress: String, token: String, requestId: String, text: String): SendResult {
+    override fun postCommit(deviceAddress: String, requestId: String, text: String): SendResult {
         return postFrame(
             deviceAddress = deviceAddress,
             frame = BluetoothCommitProtocol.commitRequestBody(
-                token = token,
                 requestId = requestId,
                 text = text,
             ),
@@ -99,7 +96,6 @@ class BluetoothCommitClient(context: Context) : TextBridgeBluetoothCommitClient 
 
     override fun postKey(
         deviceAddress: String,
-        token: String,
         requestId: String,
         key: RemoteKey,
         modifiers: List<KeyModifier>,
@@ -107,7 +103,6 @@ class BluetoothCommitClient(context: Context) : TextBridgeBluetoothCommitClient 
         return postFrame(
             deviceAddress = deviceAddress,
             frame = BluetoothCommitProtocol.keyRequestBody(
-                token = token,
                 requestId = requestId,
                 key = key,
                 modifiers = modifiers,
@@ -169,22 +164,20 @@ class BluetoothCommitClient(context: Context) : TextBridgeBluetoothCommitClient 
 }
 
 object BluetoothCommitProtocol {
-    fun commitRequestBody(token: String, requestId: String, text: String): ByteArray {
+    fun commitRequestBody(requestId: String, text: String): ByteArray {
         return JSONObject()
             .put("v", 1)
             .put("id", requestId)
-            .put("token", token)
             .put("action", "commit")
             .put("text", text)
             .toString()
             .toByteArray(StandardCharsets.UTF_8)
     }
 
-    fun keyRequestBody(token: String, requestId: String, key: RemoteKey, modifiers: List<KeyModifier>): ByteArray {
+    fun keyRequestBody(requestId: String, key: RemoteKey, modifiers: List<KeyModifier>): ByteArray {
         return JSONObject()
             .put("v", 1)
             .put("id", requestId)
-            .put("token", token)
             .put("action", "key")
             .put("key", key.wireValue)
             .put("modifiers", JSONArray(modifiers.map { it.wireValue }))
