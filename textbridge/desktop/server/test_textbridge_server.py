@@ -58,6 +58,34 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(textbridge_server.load_config(self.config_path).listen_port, 17321)
 
 
+class KeyCatalogTest(unittest.TestCase):
+    def test_complete_catalog_with_every_modifier_combination(self) -> None:
+        keys = [
+            "Return", "Escape", "Tab", "BackSpace", "Delete", "Space",
+            "Left", "Right", "Up", "Down", "Home", "End", "Page_Up", "Page_Down",
+            *"ABCDEFGHIJKLMNOPQRSTUVWXYZ", *"0123456789", *(f"F{i}" for i in range(1, 13)),
+        ]
+        self.assertEqual(len(keys), 62)
+        self.assertEqual(set(keys), textbridge_server.ALLOWED_KEY_ACTIONS)
+        modifiers = ["Control", "Shift", "Alt"]
+        for key in keys:
+            for mask in range(8):
+                expected = [value for index, value in enumerate(modifiers) if mask & (1 << index)]
+                with self.subTest(key=key, modifiers=expected):
+                    self.assertEqual(
+                        textbridge_server.normalize_key_action({"key": key, "modifiers": list(reversed(expected)) * 2}),
+                        (key, expected),
+                    )
+
+    def test_invalid_keys_and_modifier_shapes(self) -> None:
+        for key in ["F0", "F01", "F13", "a", "10", "Ctrl", "Return+X", ""]:
+            with self.subTest(key=key):
+                self.assertIsNone(textbridge_server.normalize_key_action({"key": key}))
+        for modifiers in ["Control", None, ["Super"], [1]]:
+            with self.subTest(modifiers=modifiers):
+                self.assertIsNone(textbridge_server.normalize_key_action({"key": "Return", "modifiers": modifiers}))
+
+
 class FakeFcitxSocket:
     def __init__(
         self,
@@ -308,6 +336,18 @@ class ServerProtocolTest(unittest.TestCase):
         self.assertEqual(body["status"], "ok")
         self.assertIsNotNone(fake_fcitx.received_payload)
         self.assertEqual(fake_fcitx.received_payload["modifiers"], ["Control", "Alt"])
+
+    def test_new_keys_roundtrip_with_all_modifiers(self) -> None:
+        for key in ["B", "K", "0", "9", "F1", "F12", "Return"]:
+            with self.subTest(key=key), FakeFcitxSocket(self.config.fcitx_socket) as fake_fcitx:
+                status, body = self.request(
+                    {"id": str(uuid.uuid4()), "key": key, "modifiers": ["Alt", "Shift", "Control"]},
+                    path="/v1/key",
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(body["status"], "ok")
+            self.assertEqual(fake_fcitx.received_payload["key"], key)
+            self.assertEqual(fake_fcitx.received_payload["modifiers"], ["Control", "Shift", "Alt"])
 
     def test_key_action_rejects_invalid_key(self) -> None:
         status, body = self.request(

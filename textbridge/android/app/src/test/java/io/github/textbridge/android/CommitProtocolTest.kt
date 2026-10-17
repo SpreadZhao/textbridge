@@ -8,6 +8,21 @@ import org.junit.Test
 
 class CommitProtocolTest {
     @Test
+    fun everyKeyAndModifierCombinationUsesTheHttpWireFormat() {
+        assertEquals(62, RemoteKey.entries.size)
+        for (key in RemoteKey.entries) {
+            for (mask in 0 until 8) {
+                val modifiers = KeyModifier.entries.filter { mask and (1 shl it.ordinal) != 0 }
+                val json = JSONObject(String(CommitProtocol.keyRequestBody("request-id", key, modifiers)))
+                assertEquals(key.wireValue, json.getString("key"))
+                assertEquals(modifiers.map { it.wireValue }, (0 until json.getJSONArray("modifiers").length()).map {
+                    json.getJSONArray("modifiers").getString(it)
+                })
+            }
+        }
+    }
+
+    @Test
     fun unauthorizedUsesGenericFailureMessage() {
         assertEquals("服务拒绝请求", CommitProtocol.mapFailure(401, "unauthorized"))
     }

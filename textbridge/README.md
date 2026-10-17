@@ -183,6 +183,16 @@ App 使用 Compose 和 Navigation 3，包含发送、历史、配置三个页面
 
 地址、发现端口、ADB 端口、发送方式和最近 50 条成功发送历史保存在 DataStore；只有服务端返回 `status=ok` 时才清空正文并写入历史，失败会保留正文且不记录历史。
 
+发送页的 Ctrl、Shift、Alt 可多选，与下一次手动按键组合发送；发起该次按键后自动取消选中。“更多按键”提供常用导航键、A–Z、0–9 和 F1–F12，弹层内可编辑组合并点击“发送按键”。手动按键不修改手机正文和文字历史。
+
+底部“发送后”可设为“不按键”，或选择一个自定义组合键，例如 Ctrl+Enter、Ctrl+Shift+Enter。设置会保存，关闭附加按键也会保留上次组合。它与手动控制区的临时修饰键相互独立；只有文字提交成功后才发送附加组合键。若文字成功但附加按键失败，正文仍会清空并记入历史，同时显示具体失败的组合键，避免重复提交文字。旧版“发送后按 Enter”设置会自动保留原来的行为。
+
+扩展的字母、数字和功能键需要同步更新 Android、桌面 server 和 Fcitx5 插件。按键协议继续使用原来的 `key` 和 `modifiers` 字段。
+
+Wayland 输入上下文通过 `wtype` 的虚拟键盘发送按键，确保 Ctrl、Shift、Alt 状态随主键一起生效，并在发送后释放。Nix 包自动包含此依赖；手动构建时需先安装 `wtype`，CMake 会记录其路径。此路径需要合成器支持 `zwp_virtual_keyboard_manager_v1`（例如 Niri）；如果发送失败，手机会收到失败状态。其他 Fcitx 前端继续使用原来的 `forwardKey` 路径。
+
+开发中的改动尚未推送到远端时，系统配置的 GitHub input 仍指向旧代码，单独 `switch` 不会加载本地改动。可在重建时使用 `--override-input textbridge path:/本地/textbridge`，并在激活后重启 Fcitx5 和 TextBridge 用户服务。
+
 ## USB/ADB 模式
 
 USB/ADB 模式适合手机和电脑不在同一局域网、或者局域网广播不可用的场景。它使用同一个 HTTP commit 协议，无需令牌。

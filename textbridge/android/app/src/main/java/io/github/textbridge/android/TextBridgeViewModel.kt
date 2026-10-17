@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,7 @@ class TextBridgeViewModel(
                     settingsBluetoothDeviceName = settings.bluetoothDeviceName,
                     hasUnsavedSettings = false,
                     sendMode = settings.sendMode,
+                    afterSendKey = settings.afterSendKey,
                     sendHistory = settings.sendHistory,
                 )
             }
@@ -106,15 +108,21 @@ class TextBridgeViewModel(
         _uiState.update { it.copy(body = value) }
     }
 
-    fun onSendModeChange(value: SendMode) {
-        _uiState.update { it.copy(sendMode = value) }
+    fun saveSendOptions(mode: SendMode, combination: KeyCombination) {
+        if (uiState.value.isSending) return
         viewModelScope.launch {
-            settingsStore.saveSendMode(value)
+            try {
+                settingsStore.saveSendOptions(mode, combination)
+                _uiState.update { it.copy(sendMode = mode, afterSendKey = combination) }
+            } catch (e: IOException) {
+                _uiState.update { it.copy(status = "发送后动作保存失败") }
+            }
         }
     }
 
     fun toggleKeyModifier(modifier: KeyModifier) {
         _uiState.update { state ->
+            if (state.isSending) return@update state
             val next = if (modifier in state.selectedKeyModifiers) {
                 state.selectedKeyModifiers - modifier
             } else {
@@ -239,132 +247,105 @@ class TextBridgeViewModel(
 
     fun sendCurrentText(): Boolean {
         val state = uiState.value
+        if (state.isSending) return false
         val endpoint = resolveEndpoint(state) ?: return false
         val text = state.body
-        val sendMode = state.sendMode
+        val afterSendKey = state.afterSendKey.takeIf { state.sendMode == SendMode.SEND_THEN_KEY }
 
-        when {
-            text.isEmpty() -> {
-                _uiState.update { it.copy(status = "正文为空") }
-                return false
-            }
+        if (text.isEmpty()) {
+            _uiState.update { it.copy(status = "正文为空") }
+            return false
         }
 
+        // Mark busy before dispatching so two taps cannot start concurrent sends.
+        _uiState.update { it.copy(isSending = true, status = "发送中...") }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSending = true, status = "发送中...") }
-
-            val result = withContext(ioDispatcher) {
-                if (endpoint.transportMode == TransportMode.BLUETOOTH) {
-                    commitClient.postBluetoothCommit(
-                        deviceAddress = endpoint.address,
-                        requestId = UUID.randomUUID().toString(),
-                        text = text,
-                    )
-                } else {
-                    commitClient.postCommit(
-                        address = endpoint.address,
-                        requestId = UUID.randomUUID().toString(),
-                        text = text,
-                    )
-                }
-            }
-
-            if (result.ok) {
-                val enterResult = if (sendMode == SendMode.SEND_THEN_ENTER) {
-                    withContext(ioDispatcher) {
-                        if (endpoint.transportMode == TransportMode.BLUETOOTH) {
-                            commitClient.postBluetoothKey(
-                                deviceAddress = endpoint.address,
-                                requestId = UUID.randomUUID().toString(),
-                                key = RemoteKey.RETURN,
-                                modifiers = emptyList(),
-                            )
-                        } else {
-                            commitClient.postKey(
-                                address = endpoint.address,
-                                requestId = UUID.randomUUID().toString(),
-                                key = RemoteKey.RETURN,
-                                modifiers = emptyList(),
-                            )
-                        }
+            try {
+                val result = withContext(ioDispatcher) {
+                    if (endpoint.transportMode == TransportMode.BLUETOOTH) {
+                        commitClient.postBluetoothCommit(
+                            deviceAddress = endpoint.address,
+                            requestId = UUID.randomUUID().toString(),
+                            text = text,
+                        )
+                    } else {
+                        commitClient.postCommit(
+                            address = endpoint.address,
+                            requestId = UUID.randomUUID().toString(),
+                            text = text,
+                        )
                     }
-                } else {
-                    null
                 }
-                val updatedHistory = settingsStore.addSendHistoryItem(
-                    SendHistoryItem(
-                        id = UUID.randomUUID().toString(),
-                        text = text,
-                        sentAtMillis = System.currentTimeMillis(),
-                        address = endpoint.historyAddress,
-                        transportMode = endpoint.transportMode,
-                    ),
-                )
+                if (!result.ok) {
+                    _uiState.update { it.copy(status = result.message) }
+                    return@launch
+                }
+
+                val keyResult = afterSendKey?.let { postKey(endpoint, it) }
+                val message = when {
+                    afterSendKey == null -> result.message
+                    keyResult?.ok == true -> "已发送并按 ${afterSendKey.label}"
+                    else -> "文字已发送，但 ${afterSendKey.label} 失败：${keyResult?.message}"
+                }
                 _uiState.update {
-                    it.copy(
-                        body = "",
-                        status = sendSuccessMessage(result, enterResult),
-                        isSending = false,
-                        sendHistory = updatedHistory,
-                    )
+                    it.copy(body = if (it.body == text) "" else it.body, status = message)
                 }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        status = result.message,
-                        isSending = false,
+                try {
+                    val history = settingsStore.addSendHistoryItem(
+                        SendHistoryItem(
+                            id = UUID.randomUUID().toString(),
+                            text = text,
+                            sentAtMillis = System.currentTimeMillis(),
+                            address = endpoint.historyAddress,
+                            transportMode = endpoint.transportMode,
+                        ),
                     )
+                    _uiState.update { it.copy(sendHistory = history) }
+                } catch (e: IOException) {
+                    _uiState.update { it.copy(status = "$message；历史保存失败") }
                 }
+            } finally {
+                _uiState.update { it.copy(isSending = false) }
             }
         }
         return true
     }
 
-    private fun sendSuccessMessage(commitResult: SendResult, enterResult: SendResult?): String {
-        return when {
-            enterResult == null -> commitResult.message
-            enterResult.ok -> "已发送并按 Enter"
-            else -> "文字已发送，但 Enter 失败：${enterResult.message}"
+    fun sendKeyAction(key: RemoteKey, modifiers: Set<KeyModifier>? = null) {
+        val state = uiState.value
+        if (state.isSending) return
+        val endpoint = resolveEndpoint(state) ?: return
+        val combination = KeyCombination(key, (modifiers ?: state.selectedKeyModifiers).toSet())
+        _uiState.update {
+            it.copy(isSending = true, status = "发送按键中...", selectedKeyModifiers = emptySet())
+        }
+        viewModelScope.launch {
+            try {
+                val result = postKey(endpoint, combination)
+                _uiState.update {
+                    it.copy(status = if (result.ok) "按键已发送：${combination.label}" else result.message)
+                }
+            } finally {
+                _uiState.update { it.copy(isSending = false) }
+            }
         }
     }
 
-    fun sendKeyAction(key: RemoteKey, fixedModifiers: Set<KeyModifier> = emptySet()) {
-        val state = uiState.value
-        val endpoint = resolveEndpoint(state) ?: return
-
-        val modifiers = KeyModifier.entries.filter { it in state.selectedKeyModifiers || it in fixedModifiers }
-
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isSending = true,
-                    status = "发送按键中...",
-                    selectedKeyModifiers = emptySet(),
+    private suspend fun postKey(endpoint: ResolvedEndpoint, combination: KeyCombination): SendResult {
+        return withContext(ioDispatcher) {
+            if (endpoint.transportMode == TransportMode.BLUETOOTH) {
+                commitClient.postBluetoothKey(
+                    deviceAddress = endpoint.address,
+                    requestId = UUID.randomUUID().toString(),
+                    key = combination.key,
+                    modifiers = combination.orderedModifiers,
                 )
-            }
-
-            val result = withContext(ioDispatcher) {
-                if (endpoint.transportMode == TransportMode.BLUETOOTH) {
-                    commitClient.postBluetoothKey(
-                        deviceAddress = endpoint.address,
-                        requestId = UUID.randomUUID().toString(),
-                        key = key,
-                        modifiers = modifiers,
-                    )
-                } else {
-                    commitClient.postKey(
-                        address = endpoint.address,
-                        requestId = UUID.randomUUID().toString(),
-                        key = key,
-                        modifiers = modifiers,
-                    )
-                }
-            }
-
-            _uiState.update {
-                it.copy(
-                    status = result.message,
-                    isSending = false,
+            } else {
+                commitClient.postKey(
+                    address = endpoint.address,
+                    requestId = UUID.randomUUID().toString(),
+                    key = combination.key,
+                    modifiers = combination.orderedModifiers,
                 )
             }
         }

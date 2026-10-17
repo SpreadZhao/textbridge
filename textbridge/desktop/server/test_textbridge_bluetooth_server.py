@@ -120,6 +120,25 @@ class BluetoothProtocolTest(unittest.TestCase):
                 })
                 self.assertEqual(response["status"], "ok")
 
+    def test_expanded_catalog_with_every_modifier_combination(self) -> None:
+        def fake_forward(config, payload):
+            self.captured = payload
+            return {"v": 1, "id": payload["id"], "status": "ok"}
+
+        textbridge_server.forward_to_fcitx = fake_forward
+        modifiers = ["Control", "Shift", "Alt"]
+        for key in [*"ABCDEFGHIJKLMNOPQRSTUVWXYZ", *"0123456789", *(f"F{i}" for i in range(1, 13)), "Return"]:
+            for mask in range(8):
+                expected = [value for index, value in enumerate(modifiers) if mask & (1 << index)]
+                with self.subTest(key=key, modifiers=expected):
+                    response = self.frame({
+                        "v": 1, "id": str(uuid.uuid4()), "action": "key", "key": key,
+                        "modifiers": list(reversed(expected)),
+                    })
+                    self.assertEqual(response["status"], "ok")
+                    self.assertEqual(self.captured["key"], key)
+                    self.assertEqual(self.captured["modifiers"], expected)
+
     def test_addon_user_rejection_is_preserved(self) -> None:
         def fake_forward(config, payload):
             return {"v": 1, "id": payload["id"], "status": "unauthorized"}

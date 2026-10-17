@@ -8,6 +8,17 @@ import org.junit.Test
 
 class BluetoothCommitProtocolTest {
     @Test
+    fun expandedKeysAndModifiersUseTheBluetoothWireFormat() {
+        for (key in RemoteKey.entries) {
+            val combination = KeyCombination(key, setOf(KeyModifier.ALT, KeyModifier.SHIFT, KeyModifier.CONTROL))
+            val json = JSONObject(String(BluetoothCommitProtocol.keyRequestBody("request-id", key, combination.orderedModifiers)))
+            assertEquals("key", json.getString("action"))
+            assertEquals(key.wireValue, json.getString("key"))
+            assertEquals(listOf("Control", "Shift", "Alt"), (0..2).map { json.getJSONArray("modifiers").getString(it) })
+        }
+    }
+
+    @Test
     fun commitRequestBodyUsesBluetoothWireShape() {
         val json = JSONObject(
             String(

@@ -1,3 +1,6 @@
+#include "keyactions.h"
+#include "waylandkeys.h"
+
 #include <fcitx-utils/event.h>
 #include <fcitx-utils/eventloopinterface.h>
 #include <fcitx-utils/capabilityflags.h>
@@ -445,69 +448,6 @@ bool validUtf8(const std::string &input) {
     return true;
 }
 
-std::optional<std::string> keyToFcitxName(const std::string &key) {
-    if (key == "Space") {
-        return "space";
-    }
-    if (key == "A" || key == "C" || key == "V" || key == "X" || key == "Z") {
-        std::string lower;
-        lower.push_back(static_cast<char>(key[0] - 'A' + 'a'));
-        return lower;
-    }
-    if (key == "Return" || key == "Escape" || key == "Tab" || key == "BackSpace" ||
-        key == "Delete" || key == "Left" || key == "Right" || key == "Up" ||
-        key == "Down" || key == "Home" || key == "End" || key == "Page_Up" ||
-        key == "Page_Down") {
-        return key;
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> modifierToFcitxName(const std::string &modifier, const std::string &controlName) {
-    if (modifier == "Control") {
-        return controlName;
-    }
-    if (modifier == "Shift" || modifier == "Alt") {
-        return modifier;
-    }
-    return std::nullopt;
-}
-
-std::optional<fcitx::Key> makeForwardKey(const std::string &keyName,
-                                         const std::vector<std::string> &modifiers,
-                                         const std::string &controlName) {
-    auto fcitxKeyName = keyToFcitxName(keyName);
-    if (!fcitxKeyName) {
-        return std::nullopt;
-    }
-
-    std::string spec;
-    for (const auto &modifier : modifiers) {
-        auto fcitxModifier = modifierToFcitxName(modifier, controlName);
-        if (!fcitxModifier) {
-            return std::nullopt;
-        }
-        spec += *fcitxModifier;
-        spec += "+";
-    }
-    spec += *fcitxKeyName;
-
-    fcitx::Key key(spec);
-    if (!key.isValid()) {
-        return std::nullopt;
-    }
-    return key;
-}
-
-std::optional<fcitx::Key> makeForwardKey(const std::string &keyName,
-                                         const std::vector<std::string> &modifiers) {
-    auto key = makeForwardKey(keyName, modifiers, "Control");
-    if (key) {
-        return key;
-    }
-    return makeForwardKey(keyName, modifiers, "Ctrl");
-}
-
 std::string jsonEscape(const std::string &input) {
     std::string escaped;
     for (char c : input) {
@@ -715,7 +655,7 @@ private:
     }
 
     CommitResult forwardKey(const std::string &keyName, const std::vector<std::string> &modifiers) {
-        auto key = makeForwardKey(keyName, modifiers);
+        auto key = textbridge::makeForwardKey(keyName, modifiers);
         if (!key) {
             return {"invalid_key", ""};
         }
@@ -733,6 +673,14 @@ private:
         auto flags = ic->capabilityFlags();
         if (flags.test(fcitx::CapabilityFlag::PasswordOrSensitive)) {
             return {"sensitive_field", program};
+        }
+
+        if (ic->frontendName() == "wayland_v2" || ic->frontendName() == "wayland") {
+            if (!textbridge::forwardWaylandKey(*key, TEXTBRIDGE_WTYPE_EXECUTABLE)) {
+                FCITX_WARN() << "textbridge: Wayland key forwarding failed";
+                return {"fcitx_unavailable", program};
+            }
+            return {"ok", program};
         }
 
         ic->forwardKey(*key, false);

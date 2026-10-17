@@ -272,6 +272,7 @@
               pkgs.cmake
               pkgs.ninja
               pkgs.pkg-config
+              pkgs.wtype
             ];
 
             buildInputs = [
@@ -281,6 +282,13 @@
             cmakeFlags = [
               "-GNinja"
             ];
+
+            doCheck = true;
+            checkPhase = ''
+              runHook preCheck
+              ctest --output-on-failure
+              runHook postCheck
+            '';
           };
 
           default = self.packages.${system}.textbridge-server;
@@ -539,6 +547,7 @@
               pkgs.ninja
               pkgs.pkg-config
               pkgs.fcitx5
+              pkgs.wtype
             ];
           };
 
@@ -549,6 +558,7 @@
               androidPkgs.ninja
               androidPkgs.pkg-config
               androidPkgs.fcitx5
+              androidPkgs.wtype
               androidPkgs.android-cli
               androidPkgs.gradle_9
               androidPkgs.jdk17

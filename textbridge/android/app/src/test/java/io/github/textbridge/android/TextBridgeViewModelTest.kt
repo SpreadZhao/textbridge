@@ -1,5 +1,6 @@
 package io.github.textbridge.android
 
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,17 +121,17 @@ class TextBridgeViewModelTest {
     }
 
     @Test
-    fun sendModeChangePersistsPreference() = runTest {
+    fun sendOptionsSavePersistsPreference() = runTest {
         val settingsStore = FakeSettingsRepository(TextBridgeSettings())
         val viewModel = newViewModel(settingsStore)
         advanceUntilIdle()
 
-        viewModel.onSendModeChange(SendMode.SEND_THEN_ENTER)
+        viewModel.saveSendOptions(SendMode.SEND_THEN_KEY, KeyCombination())
         advanceUntilIdle()
 
-        assertEquals(SendMode.SEND_THEN_ENTER, viewModel.uiState.value.sendMode)
-        assertEquals(SendMode.SEND_THEN_ENTER, settingsStore.settings.value.sendMode)
-        assertEquals(1, settingsStore.saveSendModeCalls)
+        assertEquals(SendMode.SEND_THEN_KEY, viewModel.uiState.value.sendMode)
+        assertEquals(SendMode.SEND_THEN_KEY, settingsStore.settings.value.sendMode)
+        assertEquals(1, settingsStore.saveSendOptionsCalls)
     }
 
     @Test
@@ -275,7 +276,7 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.ADB,
                     adbPort = 18000,
-                    sendMode = SendMode.SEND_THEN_ENTER,
+                    sendMode = SendMode.SEND_THEN_KEY,
                 ),
             ),
             commitClient = commitClient,
@@ -302,7 +303,7 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.BLUETOOTH,
                     bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
-                    sendMode = SendMode.SEND_THEN_ENTER,
+                    sendMode = SendMode.SEND_THEN_KEY,
                 ),
             ),
             commitClient = commitClient,
@@ -331,7 +332,7 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    sendMode = SendMode.SEND_THEN_ENTER,
+                    sendMode = SendMode.SEND_THEN_KEY,
                 ),
             ),
             commitClient = commitClient,
@@ -359,7 +360,7 @@ class TextBridgeViewModelTest {
                 TextBridgeSettings(
                     transportMode = TransportMode.LAN,
                     lanAddress = "192.168.1.10:17321",
-                    sendMode = SendMode.SEND_THEN_ENTER,
+                    sendMode = SendMode.SEND_THEN_KEY,
                 ),
             ),
             commitClient = commitClient,
@@ -399,7 +400,7 @@ class TextBridgeViewModelTest {
         assertTrue(commitClient.keyActions.first().modifiers.isEmpty())
         assertEquals("keep me", viewModel.uiState.value.body)
         assertTrue(viewModel.uiState.value.sendHistory.isEmpty())
-        assertEquals("按键已发送", viewModel.uiState.value.status)
+        assertEquals("按键已发送：Enter", viewModel.uiState.value.status)
     }
 
     @Test
@@ -424,7 +425,7 @@ class TextBridgeViewModelTest {
         assertEquals(RemoteKey.RETURN, commitClient.keyActions.first().key)
         assertEquals("keep me", viewModel.uiState.value.body)
         assertTrue(viewModel.uiState.value.sendHistory.isEmpty())
-        assertEquals("按键已发送", viewModel.uiState.value.status)
+        assertEquals("按键已发送：Enter", viewModel.uiState.value.status)
     }
 
     @Test
@@ -489,6 +490,179 @@ class TextBridgeViewModelTest {
         assertEquals("已从历史填入", viewModel.uiState.value.status)
     }
 
+    @Test
+    fun customCombinationsWorkOverEveryTransport() = runTest {
+        val combinations = listOf(
+            KeyCombination(RemoteKey.RETURN, setOf(KeyModifier.CONTROL)),
+            KeyCombination(RemoteKey.RETURN, setOf(KeyModifier.SHIFT, KeyModifier.CONTROL)),
+            KeyCombination(RemoteKey.K, setOf(KeyModifier.ALT, KeyModifier.CONTROL)),
+            KeyCombination(RemoteKey.DIGIT_1, setOf(KeyModifier.CONTROL, KeyModifier.SHIFT)),
+            KeyCombination(RemoteKey.F12, setOf(KeyModifier.ALT)),
+        )
+        for (transport in TransportMode.entries) {
+            for (combination in combinations) {
+                val client = FakeCommitClient()
+                val viewModel = newViewModel(
+                    FakeSettingsRepository(
+                        TextBridgeSettings(
+                            transportMode = transport,
+                            lanAddress = "desktop:17321",
+                            bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
+                            sendMode = SendMode.SEND_THEN_KEY,
+                            afterSendKey = combination,
+                        ),
+                    ),
+                    client,
+                )
+                advanceUntilIdle()
+                viewModel.toggleKeyModifier(KeyModifier.ALT)
+                viewModel.onBodyChange("hello")
+                assertTrue(viewModel.sendCurrentText())
+                advanceUntilIdle()
+
+                assertEquals(listOf(KeyAction(combination.key, combination.orderedModifiers)), client.keyActions)
+                val endpoint = when (transport) {
+                    TransportMode.LAN -> "desktop:17321"
+                    TransportMode.ADB -> "127.0.0.1:17321"
+                    TransportMode.BLUETOOTH -> "AA:BB:CC:DD:EE:FF"
+                }
+                val prefix = if (transport == TransportMode.BLUETOOTH) "bluetooth-" else ""
+                assertEquals(listOf("${prefix}commit:$endpoint", "${prefix}key:$endpoint"), client.events)
+                assertEquals("已发送并按 ${combination.label}", viewModel.uiState.value.status)
+                assertEquals("hello", viewModel.uiState.value.sendHistory.single().text)
+                assertEquals(setOf(KeyModifier.ALT), viewModel.uiState.value.selectedKeyModifiers)
+            }
+        }
+    }
+
+    @Test
+    fun disablingAfterSendRetainsCustomCombinationAcrossViewModelRecreation() = runTest {
+        val store = FakeSettingsRepository(TextBridgeSettings())
+        val viewModel = newViewModel(store)
+        advanceUntilIdle()
+        val combination = KeyCombination(RemoteKey.RETURN, setOf(KeyModifier.CONTROL, KeyModifier.SHIFT))
+        viewModel.saveSendOptions(SendMode.SEND_THEN_KEY, combination)
+        advanceUntilIdle()
+        viewModel.saveSendOptions(SendMode.SEND_ONLY, combination)
+        advanceUntilIdle()
+        val restored = newViewModel(store)
+        advanceUntilIdle()
+        assertEquals(SendMode.SEND_ONLY, restored.uiState.value.sendMode)
+        assertEquals(combination, restored.uiState.value.afterSendKey)
+    }
+
+    @Test
+    fun sendLocksImmediatelyAndRejectsRepeatedOrMixedActions() = runTest {
+        val client = FakeCommitClient()
+        val viewModel = newViewModel(FakeSettingsRepository(TextBridgeSettings(lanAddress = "desktop")), client)
+        advanceUntilIdle()
+        viewModel.onBodyChange("hello")
+        assertTrue(viewModel.sendCurrentText())
+        assertTrue(viewModel.uiState.value.isSending)
+        assertFalse(viewModel.sendCurrentText())
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        viewModel.toggleKeyModifier(KeyModifier.CONTROL)
+        viewModel.saveSendOptions(SendMode.SEND_THEN_KEY, KeyCombination())
+        advanceUntilIdle()
+        assertEquals(listOf("commit:desktop"), client.events)
+        assertTrue(viewModel.uiState.value.selectedKeyModifiers.isEmpty())
+        assertEquals(SendMode.SEND_ONLY, viewModel.uiState.value.sendMode)
+        assertFalse(viewModel.uiState.value.isSending)
+    }
+
+    @Test
+    fun manualDialogUsesItsExactDraftAndConsumesModifiersOnce() = runTest {
+        val client = FakeCommitClient()
+        val viewModel = newViewModel(FakeSettingsRepository(TextBridgeSettings(lanAddress = "desktop")), client)
+        advanceUntilIdle()
+        viewModel.toggleKeyModifier(KeyModifier.CONTROL)
+        viewModel.sendKeyAction(RemoteKey.F12, setOf(KeyModifier.SHIFT))
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        advanceUntilIdle()
+        assertEquals(listOf(KeyAction(RemoteKey.F12, listOf(KeyModifier.SHIFT))), client.keyActions)
+        assertTrue(viewModel.uiState.value.selectedKeyModifiers.isEmpty())
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        advanceUntilIdle()
+        assertEquals(KeyAction(RemoteKey.RETURN, emptyList()), client.keyActions.last())
+    }
+
+    @Test
+    fun invalidEndpointDoesNotConsumeManualModifiers() = runTest {
+        val client = FakeCommitClient()
+        val viewModel = newViewModel(FakeSettingsRepository(TextBridgeSettings()), client)
+        advanceUntilIdle()
+        viewModel.toggleKeyModifier(KeyModifier.CONTROL)
+        viewModel.sendKeyAction(RemoteKey.RETURN)
+        advanceUntilIdle()
+        assertEquals(setOf(KeyModifier.CONTROL), viewModel.uiState.value.selectedKeyModifiers)
+        assertTrue(client.events.isEmpty())
+    }
+
+    @Test
+    fun failedCustomCombinationReportsTheActualKeysAndKeepsSuccessfulTextHistory() = runTest {
+        val combination = KeyCombination(RemoteKey.RETURN, setOf(KeyModifier.CONTROL, KeyModifier.SHIFT))
+        val client = FakeCommitClient().apply { keyResult = SendResult(false, "电脑没有输入焦点") }
+        val viewModel = newViewModel(
+            FakeSettingsRepository(TextBridgeSettings(lanAddress = "desktop", sendMode = SendMode.SEND_THEN_KEY, afterSendKey = combination)),
+            client,
+        )
+        advanceUntilIdle()
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+        assertEquals("文字已发送，但 Ctrl+Shift+Enter 失败：电脑没有输入焦点", viewModel.uiState.value.status)
+        assertEquals("", viewModel.uiState.value.body)
+        assertEquals("hello", viewModel.uiState.value.sendHistory.single().text)
+    }
+
+    @Test
+    fun textEditedDuringRequestIsNotClearedAndEndpointIsCaptured() = runTest {
+        val combination = KeyCombination(RemoteKey.RETURN, setOf(KeyModifier.CONTROL))
+        val client = FakeCommitClient()
+        val store = FakeSettingsRepository(TextBridgeSettings(lanAddress = "desktop", sendMode = SendMode.SEND_THEN_KEY, afterSendKey = combination))
+        val viewModel = newViewModel(store, client)
+        advanceUntilIdle()
+        client.onCommit = {
+            viewModel.onBodyChange("next message")
+            viewModel.onSettingsTransportModeChange(TransportMode.ADB)
+            viewModel.saveSettings()
+        }
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+        assertEquals(listOf("commit:desktop", "key:desktop"), client.events)
+        assertEquals("next message", viewModel.uiState.value.body)
+        assertEquals("hello", viewModel.uiState.value.sendHistory.single().text)
+    }
+
+    @Test
+    fun savingOptionsFailureKeepsThePreviousAction() = runTest {
+        val store = FakeSettingsRepository(TextBridgeSettings()).apply { failSendOptionsSave = true }
+        val viewModel = newViewModel(store)
+        advanceUntilIdle()
+        viewModel.saveSendOptions(SendMode.SEND_THEN_KEY, KeyCombination(RemoteKey.TAB, setOf(KeyModifier.ALT)))
+        advanceUntilIdle()
+        assertEquals(SendMode.SEND_ONLY, viewModel.uiState.value.sendMode)
+        assertEquals(KeyCombination(), viewModel.uiState.value.afterSendKey)
+        assertEquals("发送后动作保存失败", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun historyStorageFailureDoesNotLeaveSuccessfulTextReadyToSendAgain() = runTest {
+        val store = FakeSettingsRepository(TextBridgeSettings(lanAddress = "desktop")).apply { failHistorySave = true }
+        val client = FakeCommitClient()
+        val viewModel = newViewModel(store, client)
+        advanceUntilIdle()
+        viewModel.onBodyChange("hello")
+        viewModel.sendCurrentText()
+        advanceUntilIdle()
+        assertEquals("", viewModel.uiState.value.body)
+        assertEquals("已发送；历史保存失败", viewModel.uiState.value.status)
+        assertFalse(viewModel.uiState.value.isSending)
+        assertFalse(viewModel.sendCurrentText())
+        assertEquals(listOf("commit:desktop"), client.events)
+    }
+
     private fun newViewModel(
         settingsRepository: TextBridgeSettingsRepository,
         commitClient: TextBridgeCommitClient = FakeCommitClient(),
@@ -523,8 +697,10 @@ private class FakeSettingsRepository(
     override val settings: StateFlow<TextBridgeSettings> = settingsState
     var saveConnectionSettingsCalls = 0
         private set
-    var saveSendModeCalls = 0
+    var saveSendOptionsCalls = 0
         private set
+    var failSendOptionsSave = false
+    var failHistorySave = false
 
     override suspend fun saveConnectionSettings(
         transportMode: TransportMode,
@@ -545,12 +721,14 @@ private class FakeSettingsRepository(
         )
     }
 
-    override suspend fun saveSendMode(sendMode: SendMode) {
-        saveSendModeCalls += 1
-        settingsState.value = settingsState.value.copy(sendMode = sendMode)
+    override suspend fun saveSendOptions(sendMode: SendMode, combination: KeyCombination) {
+        if (failSendOptionsSave) throw IOException("Storage unavailable")
+        saveSendOptionsCalls += 1
+        settingsState.value = settingsState.value.copy(sendMode = sendMode, afterSendKey = combination)
     }
 
     override suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem> {
+        if (failHistorySave) throw IOException("Storage unavailable")
         val updated = SendHistoryCodec.prepend(settingsState.value.sendHistory, item)
         settingsState.value = settingsState.value.copy(sendHistory = updated)
         return updated
@@ -580,10 +758,12 @@ private class FakeCommitClient : TextBridgeCommitClient {
     val events = mutableListOf<String>()
     var commitResult = SendResult(ok = true, message = "已发送")
     var keyResult = SendResult(ok = true, message = "按键已发送")
+    var onCommit: (() -> Unit)? = null
 
     override fun postCommit(address: String, requestId: String, text: String): SendResult {
         addresses += address
         events += "commit:$address"
+        onCommit?.invoke()
         return commitResult
     }
 

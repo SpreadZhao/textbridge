@@ -36,7 +36,7 @@ interface TextBridgeSettingsRepository {
         bluetoothDeviceName: String,
     )
 
-    suspend fun saveSendMode(sendMode: SendMode)
+    suspend fun saveSendOptions(sendMode: SendMode, combination: KeyCombination)
     suspend fun addSendHistoryItem(item: SendHistoryItem): List<SendHistoryItem>
     suspend fun removeSendHistoryItem(itemId: String): List<SendHistoryItem>
     suspend fun clearSendHistory()
@@ -54,6 +54,7 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
             }
         }
         .map { preferences ->
+            val sendOptions = SendOptionsPreferences.read(preferences)
             TextBridgeSettings(
                 transportMode = TransportMode.fromStorage(preferences[Keys.transportMode]),
                 lanAddress = preferences[Keys.address].orEmpty(),
@@ -61,7 +62,8 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
                 adbPort = preferences[Keys.adbPort] ?: DEFAULT_COMMIT_PORT,
                 bluetoothDeviceAddress = preferences[Keys.bluetoothDeviceAddress].orEmpty(),
                 bluetoothDeviceName = preferences[Keys.bluetoothDeviceName].orEmpty(),
-                sendMode = SendMode.fromStorage(preferences[Keys.sendMode]),
+                sendMode = sendOptions.mode,
+                afterSendKey = sendOptions.combination,
                 sendHistory = SendHistoryCodec.decode(preferences[Keys.sendHistoryJson]),
             )
         }
@@ -84,9 +86,9 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         }
     }
 
-    override suspend fun saveSendMode(sendMode: SendMode) {
+    override suspend fun saveSendOptions(sendMode: SendMode, combination: KeyCombination) {
         appContext.textBridgeDataStore.edit { preferences ->
-            preferences[Keys.sendMode] = sendMode.storageValue
+            SendOptionsPreferences.write(preferences, SendOptions(sendMode, combination))
         }
     }
 
@@ -123,7 +125,6 @@ class SettingsStore(context: Context) : TextBridgeSettingsRepository {
         val adbPort = intPreferencesKey("adb_port")
         val bluetoothDeviceAddress = stringPreferencesKey("bluetooth_device_address")
         val bluetoothDeviceName = stringPreferencesKey("bluetooth_device_name")
-        val sendMode = stringPreferencesKey("send_mode")
         val sendHistoryJson = stringPreferencesKey("send_history_json")
     }
 }

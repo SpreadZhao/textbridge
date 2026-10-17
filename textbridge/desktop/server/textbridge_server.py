@@ -63,11 +63,9 @@ ALLOWED_KEY_ACTIONS = {
     "Page_Up",
     "Page_Down",
     "Space",
-    "A",
-    "C",
-    "V",
-    "X",
-    "Z",
+    *(chr(code) for code in range(ord("A"), ord("Z") + 1)),
+    *(str(number) for number in range(10)),
+    *(f"F{number}" for number in range(1, 13)),
 }
 ALLOWED_KEY_MODIFIERS = ("Control", "Shift", "Alt")
 
